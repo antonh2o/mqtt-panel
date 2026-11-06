@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  api.narodmon.ru разрешён cleartext (HTTP): некоторые сети (в т.ч. мобильные
+  операторы) блокируют 443 до этого хоста, и HTTPS→HTTP fallback NarodmonApi —
+  единственный рабочий путь. Остальной трафик остаётся только HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">api.narodmon.ru</domain>
+    </domain-config>
+</network-security-config>
