@@ -1,7 +1,6 @@
 package ru.mqtt.panel.ui
 
 import android.app.Activity
-import android.view.Gravity
 import android.view.View
 import android.widget.TextView
 import androidx.core.view.ViewCompat
@@ -46,17 +45,18 @@ fun applyBottomInset(activity: Activity, view: View) {
 }
 
 /**
- * Строка версии в полосе статус-бара: окно edge-to-edge, высота строки = инсеты
- * статус-бара, текст — по центру полосы (слева часы, справа иконки — край заняты).
- * Вызывать вместо fitsSystemWindows на экране: тулбару тогда нужен applyTopInsetToToolbar.
+ * Строка версии между статус-баром и заголовком (окно edge-to-edge):
+ * верхний padding строки = инсеты статус-бара, текст — у левого края,
+ * как заголовок тулбара. По центру нельзя — на телефонах с вырезом камеры
+ * текст попадает в «дырку».
  */
-fun applyTopInsetToVersionStrip(view: TextView) {
+fun applyTopInsetToVersion(view: TextView) {
     WindowCompat.setDecorFitsSystemWindows((view.context as Activity).window, false)
-    ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
+    val baseTop = view.paddingTop
+    ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
         val top = insets.getInsets(WindowInsetsCompat.Type.systemBars()).top
-        if (top > 0 && view.minimumHeight != top) {
-            view.minimumHeight = top
-            view.gravity = Gravity.CENTER_VERTICAL or Gravity.CENTER_HORIZONTAL
+        if (v.paddingTop != baseTop + top) {
+            v.setPadding(v.paddingLeft, baseTop + top, v.paddingRight, v.paddingBottom)
         }
         insets
     }

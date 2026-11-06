@@ -165,8 +165,9 @@ class DashboardActivity : AppCompatActivity() {
 
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        applyTopInsetToToolbar(this, binding.toolbar)
-        applyTopInsetToVersionStrip(binding.tvVersion)
+        // Инсеты статус-бара забирает строка версии; тулбар без своего паддинга,
+        // иначе над заголовком двойной отступ
+        applyTopInsetToVersion(binding.tvVersion)
         binding.tvVersion.text = "v" + (try {
             packageManager.getPackageInfo(packageName, 0).versionName
         } catch (e: Exception) { "?" })

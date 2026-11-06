@@ -116,8 +116,9 @@ class MainActivity : AppCompatActivity() {
 
         repository = AppRepository(applicationContext)
         setSupportActionBar(binding.toolbar)
-        applyTopInsetToToolbar(this, binding.toolbar)
-        applyTopInsetToVersionStrip(binding.tvVersion)
+        // Инсеты статус-бара забирает строка версии; тулбар без своего паддинга,
+        // иначе над заголовком двойной отступ
+        applyTopInsetToVersion(binding.tvVersion)
         binding.toolbar.title = getString(R.string.app_name)
         binding.tvVersion.text = "v${appVersion()}"
 
