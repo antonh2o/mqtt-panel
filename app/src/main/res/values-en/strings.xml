@@ -143,5 +143,7 @@
     <string name="sensor_picker_title">Narodmon sensors</string>
     <string name="sensor_none">No sensors found. Check the login/password in the connection and the platform rate limit</string>
     <string name="sensor_loading">Loading sensors…</string>
+    <string name="field_api_key">Narodmon API key (personal)</string>
+    <string name="narodmon_need_key">Enter your Narodmon API key („My applications" on narodmon.ru)</string>
     <string name="field_sensor">Sensor (ID)</string>
 </resources>

@@ -101,7 +101,7 @@ class NarodmonService : Service() {
                 scope.launch {
                     // приватные датчики доступны после суточного userLogon
                     runCatching {
-                        NarodmonApi.ensureLogon(applicationContext, conn.username, conn.password)
+                        NarodmonApi.ensureLogon(applicationContext, conn.apiKey, conn.username, conn.password)
                     }.onFailure { Log.w(TAG, "logon failed", it) }
                     handler.removeCallbacks(pollLoop)
                     handler.post(pollLoop)
@@ -141,7 +141,7 @@ class NarodmonService : Service() {
             try {
                 // один запрос на все свои датчики: sensorsNearby?my=1
                 // (sensorsValues на 06.11.2026 отдаёт 410 Gone — см. NarodmonApi)
-                val values = NarodmonApi.fetchOwnValues(applicationContext)
+                val values = NarodmonApi.fetchOwnValues(applicationContext, conn.apiKey)
                 connectedAt = System.currentTimeMillis()
                 connectionState = ConnectionState.CONNECTED
                 backoff = 1

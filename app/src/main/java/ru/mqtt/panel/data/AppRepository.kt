@@ -77,9 +77,9 @@ class AppRepository(private val context: Context) {
     private fun AppConfig.fixIds(): AppConfig {
         var cid = 0L
         val fixedConnections = connections.map {
-            // Gson не вызывает конструктор: в конфигах до 0.2.14 новых полей нет,
-            // и они физически null despite non-null типы — чистим здесь
-            it.copy(narodmon = it.narodmon ?: false).copy(id = ++cid)
+            // Gson не вызывает конструктор: в конфигах до 0.2.19 полей narodmon/apiKey
+            // нет, и они физически null despite non-null типы — чистим здесь
+            it.copy(narodmon = it.narodmon ?: false, apiKey = it.apiKey ?: "").copy(id = ++cid)
         }
         // При импорте на новое устройство генерируем новые ClientID,
         // чтобы два одинаковых конфига не рвали соединение друг друга

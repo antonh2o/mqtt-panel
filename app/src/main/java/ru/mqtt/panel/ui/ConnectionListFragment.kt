@@ -88,9 +88,11 @@ class ConnectionListFragment : Fragment() {
         val layoutMqtt = root.findViewById<View>(R.id.layout_mqtt)
         val etHost = root.findViewById<EditText>(R.id.et_host)
 
-        // Narodmon-подключение: MQTT-поля не нужны, учётные данные общие
+        // Narodmon-подключение: MQTT-поля не нужны, учётные данные и API-ключ общие
         fun applyNarodmonMode(checked: Boolean) {
             layoutMqtt.visibility = if (checked) View.GONE else View.VISIBLE
+            root.findViewById<View>(R.id.layout_api_key).visibility =
+                if (checked) View.VISIBLE else View.GONE
             if (checked && etHost.text.isBlank()) etHost.setText("api.narodmon.ru")
         }
         cbNarodmon.setOnCheckedChangeListener { _, checked -> applyNarodmonMode(checked) }
@@ -104,6 +106,7 @@ class ConnectionListFragment : Fragment() {
             root.findViewById<EditText>(R.id.et_keepalive).setText(conn.keepAlive.toString())
             root.findViewById<EditText>(R.id.et_client_id).setText(conn.clientId)
             cbNarodmon.isChecked = conn.narodmon
+            root.findViewById<EditText>(R.id.et_api_key).setText(conn.apiKey)
             root.findViewById<CheckBox>(R.id.cb_ssl).isChecked = conn.ssl
             root.findViewById<CheckBox>(R.id.cb_websocket).isChecked = conn.websocket
             root.findViewById<CheckBox>(R.id.cb_clean).isChecked = conn.cleanSession
@@ -123,8 +126,14 @@ class ConnectionListFragment : Fragment() {
                 val name = root.findViewById<EditText>(R.id.et_name).text.toString().trim()
                 val host = etHost.text.toString().trim()
                 val isNarodmon = cbNarodmon.isChecked
+                val apiKey = root.findViewById<EditText>(R.id.et_api_key).text.toString().trim()
                 if (name.isBlank() || (!isNarodmon && host.isBlank())) {
                     Toast.makeText(requireContext(), "Заполните имя и хост", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                // без личного ключа API narodmon не авторизует запросы
+                if (isNarodmon && apiKey.isBlank()) {
+                    Toast.makeText(requireContext(), R.string.narodmon_need_key, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
                 val defaultClientId = "mqttpanel-" + System.currentTimeMillis().toString(36)
@@ -140,7 +149,8 @@ class ConnectionListFragment : Fragment() {
                     keepAlive = root.findViewById<EditText>(R.id.et_keepalive).text.toString().toIntOrNull() ?: 60,
                     cleanSession = root.findViewById<CheckBox>(R.id.cb_clean).isChecked,
                     clientId = root.findViewById<EditText>(R.id.et_client_id).text.toString().trim(),
-                    narodmon = isNarodmon
+                    narodmon = isNarodmon,
+                    apiKey = apiKey
                 )
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (conn == null) repository.addConnection(connection)

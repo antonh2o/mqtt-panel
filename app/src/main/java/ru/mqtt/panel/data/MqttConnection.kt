@@ -20,7 +20,10 @@ data class MqttConnection(
     var clientId: String = "",
     // true — «подключение» это аккаунт Народного Мониторинга: поля host/port и
     // MQTT-настройки не используются, дашборд опрашивает api.narodmon.ru
-    var narodmon: Boolean = false
+    var narodmon: Boolean = false,
+    // личный API-ключ narodmon.ru («Мои приложения»); у каждого пользователя свой,
+    // лимит платформы считается на ключ и IP — поэтому в код приложения не зашит
+    var apiKey: String = ""
 ) : Serializable {
 
     constructor() : this(0)

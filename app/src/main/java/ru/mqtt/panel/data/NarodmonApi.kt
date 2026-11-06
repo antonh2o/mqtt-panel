@@ -28,8 +28,8 @@ import java.util.UUID
  */
 object NarodmonApi {
 
-    /** Ключ разработчика narodmon.ru («Мои приложения»); лимит общий на ключ и IP */
-    const val API_KEY = "[PERSONAL_KEY_REMOVED]"
+    // API-ключ НЕ зашит в код: он личный (лимит платформы считается на ключ и IP),
+    // каждый пользователь указывает свой в настройках подключения «Narodmon»
     private const val USER_AGENT = "MQTT-Panel/0.2 (narodmon polling; Android)"
 
     private val gson = Gson()
@@ -58,6 +58,8 @@ object NarodmonApi {
 
     class RateLimitException : IllegalStateException("Narodmon: 429 rate limit")
 
+    class MissingApiKeyException : IllegalStateException("Не задан API-ключ narodmon (поле «API-ключ» в подключении)")
+
     // --- uuid устройства (генерится один раз, живёт в SharedPreferences) ---
 
     private const val PREFS = "narodmon"
@@ -81,10 +83,10 @@ object NarodmonApi {
 
     /**
      * Логин не чаще раза в сутки — открывает доступ к приватным датчикам.
-     * Пустые логин/пароль — публичные датчики, пропускаем.
+     * Пустые ключ/логин/пароль — публичные датчики, пропускаем.
      */
-    suspend fun ensureLogon(context: Context, login: String, password: String) {
-        if (login.isBlank() || password.isBlank()) return
+    suspend fun ensureLogon(context: Context, apiKey: String, login: String, password: String) {
+        if (apiKey.isBlank() || login.isBlank() || password.isBlank()) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val last = prefs.getLong(KEY_LOGON_AT, 0L)
         if (System.currentTimeMillis() - last < 24 * 3600_000L) return
@@ -92,14 +94,15 @@ object NarodmonApi {
         val body = gson.toJson(
             mapOf("login" to login, "hash" to loginHash(u, password), "uuid" to u)
         )
-        request(context, "userLogon", body)
+        request(context, apiKey, "userLogon", body)
         prefs.edit().putLong(KEY_LOGON_AT, System.currentTimeMillis()).apply()
     }
 
     /** Свои датчики (sensorsNearby?my=1): и опубликованные, и приватные — после логина */
-    suspend fun sensorsNearby(context: Context): List<NmSensor> = withContext(Dispatchers.IO) {
-        parseList(request(context, "sensorsNearby?my=1"))
-    }
+    suspend fun sensorsNearby(context: Context, apiKey: String): List<NmSensor> =
+        withContext(Dispatchers.IO) {
+            parseList(request(context, apiKey, "sensorsNearby?my=1"))
+        }
 
     /**
      * Значения всех своих датчиков одним запросом.
@@ -108,11 +111,12 @@ object NarodmonApi {
      * поэтому поллинг идёт через sensorsNearby?my=1 — в его ответе уже есть
      * текущие value каждого датчика. Возвращает id → значение (без null).
      */
-    suspend fun fetchOwnValues(context: Context): Map<Int, Double> = withContext(Dispatchers.IO) {
-        parseList(request(context, "sensorsNearby?my=1"))
-            .filter { it.value != null }
-            .associate { it.id to it.value!! }
-    }
+    suspend fun fetchOwnValues(context: Context, apiKey: String): Map<Int, Double> =
+        withContext(Dispatchers.IO) {
+            parseList(request(context, apiKey, "sensorsNearby?my=1"))
+                .filter { it.value != null }
+                .associate { it.id to it.value!! }
+        }
 
     // --- парсинг вынесен наружу для юнит-тестов (без Android-зависимостей) ---
 
@@ -166,24 +170,25 @@ object NarodmonApi {
      * uuid — query-параметр. Первым идёт HTTPS, при отказе соединения — HTTP:
      * некоторые сети блокируют 443 до api.narodmon.ru.
      */
-    private fun request(context: Context, path: String, body: String? = null): String {
+    private fun request(context: Context, apiKey: String, path: String, body: String? = null): String {
+        if (apiKey.isBlank()) throw MissingApiKeyException()
         val separator = if (path.contains('?')) "&" else "?"
         val fullPath = "$path${separator}uuid=${uuid(context)}"
-        val text = runCatching { open(context, "https://api.narodmon.ru/$fullPath", body) }
+        val text = runCatching { open(context, "https://api.narodmon.ru/$fullPath", apiKey, body) }
             .getOrElse { e ->
                 if (e is IllegalStateException || e is RateLimitException) throw e
-                open(context, "http://api.narodmon.ru/$fullPath", body)
+                open(context, "http://api.narodmon.ru/$fullPath", apiKey, body)
             }
         ImportLog.write(context, "NARODMON $path → ${text.take(300)}")
         errorEnvelope(text)?.let { throw envelopeException(it) }
         return text
     }
 
-    private fun open(context: Context, url: String, body: String?): String {
+    private fun open(context: Context, url: String, apiKey: String, body: String?): String {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 15_000
-            setRequestProperty("Narodmon-Api-Key", API_KEY)
+            setRequestProperty("Narodmon-Api-Key", apiKey)
             setRequestProperty("User-Agent", USER_AGENT)
             requestMethod = if (body != null) "POST" else "GET"
             if (body != null) {

@@ -592,8 +592,8 @@ class DashboardActivity : AppCompatActivity() {
             // Свои датчики требуют userLogon: логинимся здесь, а не только в сервисе —
             // иначе до добавления первой панели авторизация не происходит вовсе
             val result = runCatching {
-                NarodmonApi.ensureLogon(applicationContext, connection.username, connection.password)
-                NarodmonApi.sensorsNearby(applicationContext)
+                NarodmonApi.ensureLogon(applicationContext, connection.apiKey, connection.username, connection.password)
+                NarodmonApi.sensorsNearby(applicationContext, connection.apiKey)
             }
             val sensors = result.getOrElse { emptyList() }
             if (sensors.isEmpty()) {
