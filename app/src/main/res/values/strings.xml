@@ -141,7 +141,7 @@
     <string name="narodmon_polling">Опрос датчиков раз в минуту</string>
     <string name="field_pick_sensor">Выбрать датчик</string>
     <string name="sensor_picker_title">Датчики Народного Мониторинга</string>
-    <string name="sensor_none">Датчики не найдены. Проверьте логин и лимит платформы (1 запрос/мин)</string>
+    <string name="sensor_none">Датчики не найдены. Проверьте логин/пароль в подключении и лимит платформы</string>
     <string name="sensor_loading">Загрузка датчиков…</string>
     <string name="field_sensor">Датчик (ID)</string>
 </resources>

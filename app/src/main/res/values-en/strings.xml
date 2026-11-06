@@ -141,7 +141,7 @@
     <string name="narodmon_polling">Polling sensors every minute</string>
     <string name="field_pick_sensor">Pick sensor</string>
     <string name="sensor_picker_title">Narodmon sensors</string>
-    <string name="sensor_none">No sensors found. Check the login and the platform limit (1 request/min)</string>
+    <string name="sensor_none">No sensors found. Check the login/password in the connection and the platform rate limit</string>
     <string name="sensor_loading">Loading sensors…</string>
     <string name="field_sensor">Sensor (ID)</string>
 </resources>
