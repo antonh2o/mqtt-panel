@@ -27,34 +27,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:hint="@string/host">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_host"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="text" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/port">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_port"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="number" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
             android:hint="@string/username">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -64,6 +36,98 @@
                 android:inputType="text" />
 
         </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Народный Мониторинг: учётные данные — те же, MQTT-поля скрываются -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/cb_narodmon"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/narodmon_account" />
+
+        <!-- Поля, относящиеся только к MQTT -->
+        <LinearLayout
+            android:id="@+id/layout_mqtt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/host">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_host"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/port">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_port"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/keep_alive">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_keepalive"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/field_client_id">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_client_id"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cb_ssl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/ssl" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cb_websocket"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/websocket" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cb_clean"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/clean_session" />
+
+        </LinearLayout>
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
@@ -79,53 +143,6 @@
                 android:inputType="textPassword" />
 
         </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/keep_alive">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_keepalive"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="number" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/field_client_id">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_client_id"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="text" />
-
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/cb_ssl"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/ssl" />
-
-        <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/cb_websocket"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/websocket" />
-
-        <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/cb_clean"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/clean_session" />
 
     </LinearLayout>
 

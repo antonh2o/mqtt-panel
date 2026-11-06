@@ -17,7 +17,10 @@ data class MqttConnection(
     var websocket: Boolean = false,
     var keepAlive: Int = 60,
     var cleanSession: Boolean = true,
-    var clientId: String = ""
+    var clientId: String = "",
+    // true — «подключение» это аккаунт Народного Мониторинга: поля host/port и
+    // MQTT-настройки не используются, дашборд опрашивает api.narodmon.ru
+    var narodmon: Boolean = false
 ) : Serializable {
 
     constructor() : this(0)

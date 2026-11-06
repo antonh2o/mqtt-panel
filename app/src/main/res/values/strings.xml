@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MQTT Панель</string>
+    <string name="app_name">MQTT+Narodmon Панель</string>
     <string name="title_connections">Подключения</string>
     <string name="add_connection">Добавить</string>
     <string name="edit_connection">Редактировать</string>
@@ -135,4 +135,13 @@
     <string name="series_add">Добавить серию</string>
     <string name="series_remove">Убрать серию</string>
     <string name="multi_need_series">Добавьте хотя бы одну серию с темой</string>
+
+    <!-- Народный Мониторинг -->
+    <string name="narodmon_account">Narodmon (аккаунт)</string>
+    <string name="narodmon_polling">Опрос датчиков раз в минуту</string>
+    <string name="field_pick_sensor">Выбрать датчик</string>
+    <string name="sensor_picker_title">Датчики Народного Мониторинга</string>
+    <string name="sensor_none">Датчики не найдены. Проверьте логин и лимит платформы (1 запрос/мин)</string>
+    <string name="sensor_loading">Загрузка датчиков…</string>
+    <string name="field_sensor">Датчик (ID)</string>
 </resources>

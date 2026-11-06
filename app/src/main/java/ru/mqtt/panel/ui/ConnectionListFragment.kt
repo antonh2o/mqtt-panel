@@ -84,18 +84,30 @@ class ConnectionListFragment : Fragment() {
     private fun editConnection(conn: MqttConnection?) {
         val root = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_connection, null)
+        val cbNarodmon = root.findViewById<CheckBox>(R.id.cb_narodmon)
+        val layoutMqtt = root.findViewById<View>(R.id.layout_mqtt)
+        val etHost = root.findViewById<EditText>(R.id.et_host)
+
+        // Narodmon-подключение: MQTT-поля не нужны, учётные данные общие
+        fun applyNarodmonMode(checked: Boolean) {
+            layoutMqtt.visibility = if (checked) View.GONE else View.VISIBLE
+            if (checked && etHost.text.isBlank()) etHost.setText("api.narodmon.ru")
+        }
+        cbNarodmon.setOnCheckedChangeListener { _, checked -> applyNarodmonMode(checked) }
 
         if (conn != null) {
             root.findViewById<EditText>(R.id.et_name).setText(conn.name)
-            root.findViewById<EditText>(R.id.et_host).setText(conn.host)
+            etHost.setText(conn.host)
             root.findViewById<EditText>(R.id.et_port).setText(conn.port.toString())
             root.findViewById<EditText>(R.id.et_username).setText(conn.username)
             root.findViewById<EditText>(R.id.et_password).setText(conn.password)
             root.findViewById<EditText>(R.id.et_keepalive).setText(conn.keepAlive.toString())
             root.findViewById<EditText>(R.id.et_client_id).setText(conn.clientId)
+            cbNarodmon.isChecked = conn.narodmon
             root.findViewById<CheckBox>(R.id.cb_ssl).isChecked = conn.ssl
             root.findViewById<CheckBox>(R.id.cb_websocket).isChecked = conn.websocket
             root.findViewById<CheckBox>(R.id.cb_clean).isChecked = conn.cleanSession
+            applyNarodmonMode(conn.narodmon)
         } else {
             root.findViewById<EditText>(R.id.et_host).setText("broker.emqx.io")
             root.findViewById<EditText>(R.id.et_port).setText("1883")
@@ -109,8 +121,9 @@ class ConnectionListFragment : Fragment() {
             .setView(root)
             .setPositiveButton(R.string.save) { _, _ ->
                 val name = root.findViewById<EditText>(R.id.et_name).text.toString().trim()
-                val host = root.findViewById<EditText>(R.id.et_host).text.toString().trim()
-                if (name.isBlank() || host.isBlank()) {
+                val host = etHost.text.toString().trim()
+                val isNarodmon = cbNarodmon.isChecked
+                if (name.isBlank() || (!isNarodmon && host.isBlank())) {
                     Toast.makeText(requireContext(), "Заполните имя и хост", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
@@ -118,7 +131,7 @@ class ConnectionListFragment : Fragment() {
                 val connection = MqttConnection(
                     id = conn?.id ?: 0,
                     name = name,
-                    host = host,
+                    host = if (isNarodmon) "api.narodmon.ru" else host,
                     port = root.findViewById<EditText>(R.id.et_port).text.toString().toIntOrNull() ?: 1883,
                     username = root.findViewById<EditText>(R.id.et_username).text.toString().trim(),
                     password = root.findViewById<EditText>(R.id.et_password).text.toString(),
@@ -126,7 +139,8 @@ class ConnectionListFragment : Fragment() {
                     websocket = root.findViewById<CheckBox>(R.id.cb_websocket).isChecked,
                     keepAlive = root.findViewById<EditText>(R.id.et_keepalive).text.toString().toIntOrNull() ?: 60,
                     cleanSession = root.findViewById<CheckBox>(R.id.cb_clean).isChecked,
-                    clientId = root.findViewById<EditText>(R.id.et_client_id).text.toString().trim()
+                    clientId = root.findViewById<EditText>(R.id.et_client_id).text.toString().trim(),
+                    narodmon = isNarodmon
                 )
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (conn == null) repository.addConnection(connection)

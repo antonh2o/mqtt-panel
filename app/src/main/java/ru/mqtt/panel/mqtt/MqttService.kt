@@ -256,6 +256,8 @@ class MqttService : Service(), MqttCallbackExtended {
     private fun buildTopicMap() {
         topicMap.clear()
         for (panel in panels) {
+            // Народмон-панели опрашивает NarodmonService — MQTT их не подписывает
+            if (panel.source == "narodmon") continue
             // Мультиграфик подписан на темы своих серий, а не на topicSubscribe
             if (panel.type == WidgetType.MULTI_CHART) {
                 panel.series.forEach { s ->

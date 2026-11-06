@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.ChartSeries
+import ru.mqtt.panel.data.MqttConnection
+import ru.mqtt.panel.data.NarodmonApi
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.Span
 import ru.mqtt.panel.data.TopicRegistry
@@ -28,12 +30,16 @@ import ru.mqtt.panel.data.WidgetType
 import ru.mqtt.panel.databinding.ActivityDashboardBinding
 import ru.mqtt.panel.mqtt.ConnectionState
 import ru.mqtt.panel.mqtt.MqttService
+import ru.mqtt.panel.mqtt.NarodmonService
 import ru.mqtt.panel.mqtt.publishMqtt
 import ru.mqtt.panel.mqtt.startMqttConnect
 import ru.mqtt.panel.mqtt.startMqttScan
+import ru.mqtt.panel.mqtt.startNarodmon
 import ru.mqtt.panel.mqtt.stopMqtt
 import ru.mqtt.panel.mqtt.stopMqttScan
+import ru.mqtt.panel.mqtt.stopNarodmon
 import ru.mqtt.panel.mqtt.syncMqttPanels
+import ru.mqtt.panel.mqtt.syncNarodmonPanels
 import ru.mqtt.panel.ui.applyBottomInset
 import ru.mqtt.panel.ui.applyTopInsetToToolbar
 
@@ -56,12 +62,39 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var repository: AppRepository
     private lateinit var widgetAdapter: WidgetAdapter
     private var connectionId: Long = 0
+    /** Текущее подключение — определяет, чем его обслуживать: MQTT или Narodmon */
+    private var loadedConnection: MqttConnection? = null
     /** Сколько сообщений пришло — видно в статусе, чтобы отличить
      *  «подписались, но брокер молчит» от «не обновили UI» */
     private var receivedCount = 0
     /** Пользователь сам нажал «Отключить» — не переподключаться молча */
     private var userDisconnected = false
     private var dragHelper: androidx.recyclerview.widget.ItemTouchHelper? = null
+
+    // --- сервис-агностика: подключение обслуживает MqttService или NarodmonService ---
+
+    private fun useNarodmon() = loadedConnection?.narodmon == true
+
+    private fun svcState(): ConnectionState =
+        if (useNarodmon()) NarodmonService.connectionState else MqttService.connectionState
+
+    private fun svcConnId(): Long =
+        if (useNarodmon()) NarodmonService.activeConnectionId else MqttService.activeConnectionId
+
+    private fun svcUptime(): Long =
+        if (useNarodmon()) NarodmonService.uptimeSeconds() else MqttService.uptimeSeconds()
+
+    private fun connectService(conn: MqttConnection, panels: List<Panel>) {
+        if (conn.narodmon) startNarodmon(conn, panels) else startMqttConnect(conn, panels)
+    }
+
+    private fun disconnectService() {
+        if (useNarodmon()) stopNarodmon() else stopMqtt()
+    }
+
+    private fun syncServicePanels(panels: List<Panel>) {
+        if (useNarodmon()) syncNarodmonPanels(panels) else syncMqttPanels(panels)
+    }
 
     private fun renderStatus(
         connected: Boolean = false,
@@ -75,10 +108,10 @@ class DashboardActivity : AppCompatActivity() {
             else -> "✗ " + getString(R.string.disconnected)
         }
         // Рядом со статусом — время в сети: 45 с / 5 мин 12 с / 1 ч 07 мин
-        val up = MqttService.uptimeSeconds()
+        val up = svcUptime()
         binding.tvStatus.text =
             if (connected && up >= 0) "$base · ${formatUptime(up)}" else base
-        val isConnected = connected || (MqttService.connectionState == ConnectionState.CONNECTED)
+        val isConnected = connected || svcState() == ConnectionState.CONNECTED
         binding.btnConnect.setText(
             if (isConnected) R.string.disconnect else R.string.connect
         )
@@ -122,7 +155,7 @@ class DashboardActivity : AppCompatActivity() {
     /** Раз в секунду обновляем счётчик времени в сети на статус-строке */
     private val uptimeTicker = object : android.os.Handler(android.os.Looper.getMainLooper()) {
         override fun handleMessage(msg: android.os.Message) {
-            if (MqttService.connectionState == ConnectionState.CONNECTED) {
+            if (svcState() == ConnectionState.CONNECTED) {
                 renderStatus(connected = true)
             }
             sendEmptyMessageDelayed(0, 1000)
@@ -145,13 +178,15 @@ class DashboardActivity : AppCompatActivity() {
     private val messageReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
             // Сервис держит одно соединение: сообщения от другого подключения
-            // сюда приходить не должны, иначе значения «перетекают» между приборами
-            if (MqttService.activeConnectionId != connectionId) return
+            // сюда приходить не должны, иначе значения «перетекают» между приборами.
+            // narodmon-сервис рассылает значения в тот же broadcast (topic = sensorId)
+            if (MqttService.activeConnectionId != connectionId &&
+                NarodmonService.activeConnectionId != connectionId) return
             val topic = intent?.getStringExtra(MqttService.EXTRA_MESSAGE_TOPIC) ?: return
             val payload = intent.getStringExtra(MqttService.EXTRA_MESSAGE_PAYLOAD) ?: return
             receivedCount++
             widgetAdapter.updateValueByTopic(topic, payload)
-            renderStatus(connected = MqttService.connectionState == ConnectionState.CONNECTED)
+            renderStatus(connected = svcState() == ConnectionState.CONNECTED)
         }
     }
 
@@ -273,6 +308,8 @@ class DashboardActivity : AppCompatActivity() {
      * пользователь отмечает нужные, и для них создаём виджеты.
      */
     private fun showScanner() {
+        // Сканер подписывается на MQTT-`#` — у narodmon-подключения он скрыт
+        if (useNarodmon()) return
         lifecycleScope.launch {
             val connection = repository.getConnection(connectionId)
             if (connection == null) {
@@ -405,8 +442,9 @@ class DashboardActivity : AppCompatActivity() {
                 finish()
                 return@launch
             }
+            loadedConnection = connection
 
-            // Версия теперь в полосе статус-бара, в заголовке только имя подключения
+            // Версия — в одной строке с именем (subtitle под названием был слишком низко)
             supportActionBar?.title = connection.name
             supportActionBar?.subtitle = null
 
@@ -417,21 +455,23 @@ class DashboardActivity : AppCompatActivity() {
             widgetAdapter.submitFresh(panels)
             binding.tvEmpty.visibility = if (panels.isEmpty()) View.VISIBLE else View.GONE
 
+            // У narodmon-подключения сканер топиков бессмыслен — прячем кнопку
+            binding.btnScan.visibility = if (connection.narodmon) View.GONE else View.VISIBLE
+
             // Автоподключение при входе на экран:
             // переподключаемся, если нет соединения ИЛИ соединение к другому подключению
-            val curConnId = MqttService.activeConnectionId
             if (panels.isNotEmpty() &&
-                (MqttService.connectionState != ConnectionState.CONNECTED || curConnId != connectionId)) {
-                startMqttConnect(connection, panels)
+                (svcState() != ConnectionState.CONNECTED || svcConnId() != connectionId)) {
+                connectService(connection, panels)
             }
         }
     }
 
     private fun toggleConnection() {
         lifecycleScope.launch {
-            if (MqttService.connectionState == ConnectionState.CONNECTED) {
+            if (svcState() == ConnectionState.CONNECTED) {
                 userDisconnected = true
-                stopMqtt()
+                disconnectService()
                 return@launch
             }
             userDisconnected = false
@@ -447,13 +487,13 @@ class DashboardActivity : AppCompatActivity() {
     private fun ensureConnected() {
         lifecycleScope.launch {
             val connection = repository.getConnection(connectionId) ?: return@launch
+            loadedConnection = connection
             val panels = repository.getPanels(connectionId)
             if (panels.isEmpty()) return@launch
-            if (MqttService.connectionState == ConnectionState.CONNECTING) return@launch
-            if (MqttService.connectionState == ConnectionState.CONNECTED &&
-                MqttService.activeConnectionId == connectionId) return@launch
+            if (svcState() == ConnectionState.CONNECTING) return@launch
+            if (svcState() == ConnectionState.CONNECTED && svcConnId() == connectionId) return@launch
             userDisconnected = false
-            startMqttConnect(connection, panels)
+            connectService(connection, panels)
         }
     }
 
@@ -464,6 +504,7 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<EditText>(R.id.et_name).setText(panel.name)
         root.findViewById<EditText>(R.id.et_topic_sub).setText(panel.topicSubscribe)
         root.findViewById<EditText>(R.id.et_topic_pub).setText(panel.topicPublish)
+        root.findViewById<EditText>(R.id.et_topic_sensor).setText(panel.topicSubscribe)
         root.findViewById<EditText>(R.id.et_qos).setText(panel.qos.toString())
         root.findViewById<EditText>(R.id.et_unit).setText(panel.unitSuffix)
         setupTypePicker(root, panel.type)
@@ -476,13 +517,15 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<EditText>(R.id.et_points).setText(panel.chartPoints.toString())
         setupChartOptions(root, panel.chartColor, panel.chartShowScale)
         setupMultiChart(root, panel)
+        setupSensorPicker(root)
         showTypeSections(root, panel.type)
 
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.edit_panel)
             .setView(root)
             .setPositiveButton(R.string.save) { _, _ ->
-                val updated = readPanelForm(root, panel).copy(id = panel.id, connectionId = panel.connectionId)
+                val updated = readPanelForm(root, panel)
+                    .copy(id = panel.id, connectionId = panel.connectionId)
                 if (updated.type == WidgetType.MULTI_CHART && updated.series.isEmpty()) {
                     Toast.makeText(this, R.string.multi_need_series, Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
@@ -510,6 +553,8 @@ class DashboardActivity : AppCompatActivity() {
         setupTypePicker(root, WidgetType.VALUE)
         setupSpanPicker(root, Span.THIRD)
         setupChartOptions(root, DEFAULT_CHART_COLOR, true)
+        setupSensorPicker(root)
+        showTypeSections(root, WidgetType.VALUE)
 
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.add_panel)
@@ -528,6 +573,40 @@ class DashboardActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * У narodmon-подключения вместо поля темы — «Выбрать датчик»:
+     * sensorsNearby?my=1&pub=1 показывает свои датчики списком.
+     */
+    private fun setupSensorPicker(root: View) {
+        val etSensor = root.findViewById<EditText>(R.id.et_topic_sensor)
+        etSensor.setOnClickListener { pickSensor(root, etSensor) }
+        root.findViewById<View>(R.id.btn_pick_sensor).setOnClickListener { pickSensor(root, etSensor) }
+    }
+
+    private fun pickSensor(root: View, etSensor: EditText) {
+        Toast.makeText(this, R.string.sensor_loading, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val sensors = runCatching { NarodmonApi.sensorsNearby(applicationContext) }
+                .getOrElse { emptyList() }
+            if (sensors.isEmpty()) {
+                Toast.makeText(this@DashboardActivity, R.string.sensor_none, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val labels = sensors.map { "#${it.id} ${it.name}" }.toTypedArray()
+            MaterialAlertDialogBuilder(this@DashboardActivity)
+                .setTitle(R.string.sensor_picker_title)
+                .setItems(labels) { _, which ->
+                    val sensor = sensors[which]
+                    etSensor.setText(sensor.id.toString())
+                    // пустое название панели берём от датчика
+                    val etName = root.findViewById<EditText>(R.id.et_name)
+                    if (etName.text.isNullOrBlank()) etName.setText(sensor.name.ifBlank { "#${sensor.id}" })
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
     }
 
     /**
@@ -585,6 +664,7 @@ class DashboardActivity : AppCompatActivity() {
 
     /** Показываем только те параметры, что относятся к выбранному типу */
     private fun showTypeSections(root: View, type: WidgetType) {
+        val narodmon = useNarodmon()
         root.findViewById<View>(R.id.layout_switch).visibility =
             if (type == WidgetType.SWITCH || type == WidgetType.LED) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.layout_slider).visibility =
@@ -598,9 +678,16 @@ class DashboardActivity : AppCompatActivity() {
             if (type == WidgetType.CHART) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.layout_multi).visibility =
             if (type == WidgetType.MULTI_CHART) View.VISIBLE else View.GONE
-        // Темы подписки у мультиграфика живут в сериях
+        // Тема подписки не нужна: у мультиграфика она в сериях, у narodmon — датчик
         root.findViewById<View>(R.id.layout_topic_sub).visibility =
-            if (type == WidgetType.MULTI_CHART) View.GONE else View.VISIBLE
+            if (type == WidgetType.MULTI_CHART || narodmon) View.GONE else View.VISIBLE
+        root.findViewById<View>(R.id.layout_topic_pub).visibility =
+            if (type == WidgetType.MULTI_CHART || narodmon) View.GONE else View.VISIBLE
+        // У narodmon вместо темы — выбор датчика
+        root.findViewById<View>(R.id.layout_topic_sensor).visibility =
+            if (narodmon) View.VISIBLE else View.GONE
+        root.findViewById<View>(R.id.btn_pick_sensor).visibility =
+            if (narodmon) View.VISIBLE else View.GONE
         // Единицы измерения имеют смысл только там, где значение показывают числом/текстом
         root.findViewById<View>(R.id.layout_unit).visibility =
             if (type == WidgetType.SWITCH || type == WidgetType.BUTTON || type == WidgetType.LED)
@@ -793,13 +880,21 @@ class DashboardActivity : AppCompatActivity() {
     private fun readPanelForm(root: View, base: Panel): Panel {
         val etType = root.findViewById<EditText>(R.id.et_type)
         val colors = root.findViewById<LinearLayout>(R.id.chart_colors)
+        val narodmon = useNarodmon()
         val panel = base.copy(
             name = root.findViewById<EditText>(R.id.et_name).text.toString().trim()
                 .ifBlank { "Новая панель" },
             type = currentType(etType),
             unitSuffix = root.findViewById<EditText>(R.id.et_unit).text.toString().trim(),
-            topicSubscribe = root.findViewById<EditText>(R.id.et_topic_sub).text.toString().trim(),
-            topicPublish = root.findViewById<EditText>(R.id.et_topic_pub).text.toString().trim(),
+            topicSubscribe = if (narodmon) {
+                // у narodmon-панели в теме подписки хранится ID датчика
+                root.findViewById<EditText>(R.id.et_topic_sensor).text.toString().trim()
+            } else {
+                root.findViewById<EditText>(R.id.et_topic_sub).text.toString().trim()
+            },
+            topicPublish = if (narodmon) "" else {
+                root.findViewById<EditText>(R.id.et_topic_pub).text.toString().trim()
+            },
             qos = root.findViewById<EditText>(R.id.et_qos).text.toString().toIntOrNull() ?: 0,
             sliderMin = root.findViewById<EditText>(R.id.et_min).text.toString().toDoubleOrNull() ?: 0.0,
             sliderMax = root.findViewById<EditText>(R.id.et_max).text.toString().toDoubleOrNull() ?: 100.0,
@@ -809,7 +904,8 @@ class DashboardActivity : AppCompatActivity() {
             chartPoints = root.findViewById<EditText>(R.id.et_points).text.toString().toIntOrNull() ?: 50,
             chartColor = colors.tag as? String ?: DEFAULT_CHART_COLOR,
             chartShowScale = root.findViewById<android.widget.CheckBox>(R.id.cb_show_scale).isChecked,
-            span = currentSpan(root.findViewById(R.id.et_span)).spanCount
+            span = currentSpan(root.findViewById(R.id.et_span)).spanCount,
+            source = if (narodmon) "narodmon" else "mqtt"
         )
         return if (panel.type == WidgetType.MULTI_CHART) {
             // у мультиграфика темы подписки — в сериях, общее поле не используется
@@ -847,9 +943,8 @@ class DashboardActivity : AppCompatActivity() {
         // Состав панелей изменился — обновляем подписки сервиса без переподключения.
         // Если соединения нет (или оно к другому подключению) — поднимаем заново,
         // иначе правка панели на «остывшем» сокете оставляла экран offline навсегда
-        if (MqttService.activeConnectionId == connectionId &&
-            MqttService.connectionState == ConnectionState.CONNECTED) {
-            syncMqttPanels(panels)
+        if (svcConnId() == connectionId && svcState() == ConnectionState.CONNECTED) {
+            syncServicePanels(panels)
         } else if (!userDisconnected) {
             ensureConnected()
         }

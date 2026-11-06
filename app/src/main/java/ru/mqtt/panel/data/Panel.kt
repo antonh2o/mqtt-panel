@@ -48,6 +48,10 @@ data class Panel(
     var span: Int = 2,
     // единица измерения/суффикс к значению: "°C", "%", " dB" (как в narodmon)
     var unitSuffix: String = "",
+    // источник данных: "mqtt" (по умолчанию) или "narodmon". У narodmon-панелей
+    // topicSubscribe хранит ID датчика строкой — маршрутизация значений и графики
+    // переиспользуются без изменений
+    var source: String = "mqtt",
     // последнее значение
     var lastValue: String = ""
 ) : Serializable

@@ -76,7 +76,11 @@ class AppRepository(private val context: Context) {
     /** Гарантирует уникальность id после импорта/загрузки */
     private fun AppConfig.fixIds(): AppConfig {
         var cid = 0L
-        val fixedConnections = connections.map { it.copy(id = ++cid) }
+        val fixedConnections = connections.map {
+            // Gson не вызывает конструктор: в конфигах до 0.2.14 новых полей нет,
+            // и они физически null despite non-null типы — чистим здесь
+            it.copy(narodmon = it.narodmon ?: false).copy(id = ++cid)
+        }
         // При импорте на новое устройство генерируем новые ClientID,
         // чтобы два одинаковых конфига не рвали соединение друг друга
         val fixedConnections2 = fixedConnections.map { it.copy(
@@ -91,7 +95,8 @@ class AppRepository(private val context: Context) {
                 connectionId = oldToNew[it.connectionId] ?: it.connectionId,
                 // Gson не вызывает конструктор: в конфигах до 0.2.9 поля series нет,
                 // и despite non-null тип оно физически null — чистим здесь
-                series = it.series ?: emptyList()
+                series = it.series ?: emptyList(),
+                source = it.source ?: "mqtt"
             )
         }
         return AppConfig(fixedConnections2, fixedPanels)

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MQTT Panel</string>
+    <string name="app_name">MQTT+Narodmon Panel</string>
     <string name="title_connections">Connections</string>
     <string name="add_connection">Add</string>
     <string name="edit_connection">Edit</string>
@@ -135,4 +135,13 @@
     <string name="series_add">Add series</string>
     <string name="series_remove">Remove series</string>
     <string name="multi_need_series">Add at least one series with a topic</string>
+
+    <!-- Narodmon -->
+    <string name="narodmon_account">Narodmon (account)</string>
+    <string name="narodmon_polling">Polling sensors every minute</string>
+    <string name="field_pick_sensor">Pick sensor</string>
+    <string name="sensor_picker_title">Narodmon sensors</string>
+    <string name="sensor_none">No sensors found. Check the login and the platform limit (1 request/min)</string>
+    <string name="sensor_loading">Loading sensors…</string>
+    <string name="field_sensor">Sensor (ID)</string>
 </resources>

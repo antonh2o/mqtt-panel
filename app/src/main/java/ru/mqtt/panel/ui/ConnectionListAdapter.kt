@@ -46,11 +46,16 @@ class ConnectionListAdapter(
 
         fun bind(conn: MqttConnection) {
             tvName.text = conn.name
-            tvHost.text = "${conn.host}:${conn.port}"
+            tvHost.text = if (conn.narodmon) {
+                // аккаунт Народного Мониторинга: хост фиксированный, важен логин
+                "narodmon.ru · ${conn.username.ifBlank { "без логина" }}"
+            } else {
+                "${conn.host}:${conn.port}"
+            }
             val count = panelCounts[conn.id] ?: 0
             tvPanels.text = itemView.context.getString(R.string.panels_count, count)
-            tvSsl.text = if (conn.ssl) "🔒SSL " else ""
-            tvWs.text = if (conn.websocket) "WS " else ""
+            tvSsl.text = if (conn.narodmon) "" else if (conn.ssl) "🔒SSL " else ""
+            tvWs.text = if (conn.narodmon) "" else if (conn.websocket) "WS " else ""
 
             // Кнопки справа — отдельно от карточки
             btnEdit.setOnClickListener { onEdit(conn) }
