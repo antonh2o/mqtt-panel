@@ -139,10 +139,9 @@ class NarodmonService : Service() {
         }
         scope.launch {
             try {
-                val ids = panels.flatMap { p ->
-                    listOf(p.topicSubscribe) + p.series.map { it.topic }
-                }.mapNotNull { it.toIntOrNull() }
-                val values = NarodmonApi.sensorsValues(applicationContext, ids)
+                // один запрос на все свои датчики: sensorsNearby?my=1
+                // (sensorsValues на 06.11.2026 отдаёт 410 Gone — см. NarodmonApi)
+                val values = NarodmonApi.fetchOwnValues(applicationContext)
                 connectedAt = System.currentTimeMillis()
                 connectionState = ConnectionState.CONNECTED
                 backoff = 1

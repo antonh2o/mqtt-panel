@@ -102,15 +102,17 @@ object NarodmonApi {
     }
 
     /**
-     * Значения пачкой до 30 датчиков: sensorsValues?sensors=id-id-id.
-     * Возвращает id → значение.
+     * Значения всех своих датчиков одним запросом.
+     *
+     * sensorsValues на 06.11.2026 отвечает «410 Gone»/рвёт соединение при лимите,
+     * поэтому поллинг идёт через sensorsNearby?my=1 — в его ответе уже есть
+     * текущие value каждого датчика. Возвращает id → значение (без null).
      */
-    suspend fun sensorsValues(context: Context, ids: List<Int>): Map<Int, Double> =
-        withContext(Dispatchers.IO) {
-            val batch = ids.distinct().take(30)
-            if (batch.isEmpty()) return@withContext emptyMap()
-            parseValues(request(context, "sensorsValues?sensors=" + batch.joinToString("-")))
-        }
+    suspend fun fetchOwnValues(context: Context): Map<Int, Double> = withContext(Dispatchers.IO) {
+        parseList(request(context, "sensorsNearby?my=1"))
+            .filter { it.value != null }
+            .associate { it.id to it.value!! }
+    }
 
     // --- парсинг вынесен наружу для юнит-тестов (без Android-зависимостей) ---
 
