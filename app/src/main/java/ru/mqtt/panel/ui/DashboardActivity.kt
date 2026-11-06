@@ -586,15 +586,28 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     private fun pickSensor(root: View, etSensor: EditText) {
+        val connection = loadedConnection ?: return
         Toast.makeText(this, R.string.sensor_loading, Toast.LENGTH_SHORT).show()
         lifecycleScope.launch {
-            val sensors = runCatching { NarodmonApi.sensorsNearby(applicationContext) }
-                .getOrElse { emptyList() }
+            // Свои датчики требуют userLogon: логинимся здесь, а не только в сервисе —
+            // иначе до добавления первой панели авторизация не происходит вовсе
+            val result = runCatching {
+                NarodmonApi.ensureLogon(applicationContext, connection.username, connection.password)
+                NarodmonApi.sensorsNearby(applicationContext)
+            }
+            val sensors = result.getOrElse { emptyList() }
             if (sensors.isEmpty()) {
-                Toast.makeText(this@DashboardActivity, R.string.sensor_none, Toast.LENGTH_LONG).show()
+                // показываем причину платформы («Авторизуйтесь», лимит и т.п.), не просто «пусто»
+                val err = result.exceptionOrNull()?.message
+                val msg = err?.takeIf { it.isNotBlank() }
+                    ?: getString(R.string.sensor_none)
+                Toast.makeText(this@DashboardActivity, msg, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            val labels = sensors.map { "#${it.id} ${it.name}" }.toTypedArray()
+            val labels = sensors.map { s ->
+                val value = s.value?.let { " = ${NarodmonApi.fmt(it)}" } ?: ""
+                "#${s.id} ${s.name}$value"
+            }.toTypedArray()
             MaterialAlertDialogBuilder(this@DashboardActivity)
                 .setTitle(R.string.sensor_picker_title)
                 .setItems(labels) { _, which ->

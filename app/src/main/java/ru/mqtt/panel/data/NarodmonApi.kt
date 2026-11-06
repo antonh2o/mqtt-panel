@@ -96,9 +96,9 @@ object NarodmonApi {
         prefs.edit().putLong(KEY_LOGON_AT, System.currentTimeMillis()).apply()
     }
 
-    /** Свои датчики, доступные для публикации (sensorsNearby?my=1&pub=1) */
+    /** Свои датчики (sensorsNearby?my=1): и опубликованные, и приватные — после логина */
     suspend fun sensorsNearby(context: Context): List<NmSensor> = withContext(Dispatchers.IO) {
-        parseList(request(context, "sensorsNearby?my=1&pub=1"))
+        parseList(request(context, "sensorsNearby?my=1"))
     }
 
     /**
