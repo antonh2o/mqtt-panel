@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -18,6 +19,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
+import ru.mqtt.panel.data.ChartSeries
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.Span
 import ru.mqtt.panel.data.TopicRegistry
@@ -164,6 +166,10 @@ class DashboardActivity : AppCompatActivity() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         applyTopInsetToToolbar(this, binding.toolbar)
+        applyTopInsetToVersionStrip(binding.tvVersion)
+        binding.tvVersion.text = "v" + (try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) { "?" })
         applyBottomInset(this, binding.bottomBar)
 
         widgetAdapter = WidgetAdapter(
@@ -272,7 +278,11 @@ class DashboardActivity : AppCompatActivity() {
                 Toast.makeText(this@DashboardActivity, R.string.scan_need_connection, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val existingFilters = repository.getPanels(connectionId).map { it.topicSubscribe }
+            val existingFilters = repository.getPanels(connectionId).flatMap { p ->
+                // У мультиграфика темы подписок — в сериях
+                if (p.type == WidgetType.MULTI_CHART) p.series.map { it.topic } + p.topicSubscribe
+                else listOf(p.topicSubscribe)
+            }.filter { it.isNotBlank() }
 
             startMqttScan(connection)
 
@@ -395,10 +405,8 @@ class DashboardActivity : AppCompatActivity() {
                 return@launch
             }
 
-            // Версия — в одной строке с именем (subtitle под названием был слишком низко)
-            supportActionBar?.title = connection.name + " v" + (try {
-                packageManager.getPackageInfo(packageName, 0).versionName
-            } catch (e: Exception) { "?" })
+            // Версия теперь в полосе статус-бара, в заголовке только имя подключения
+            supportActionBar?.title = connection.name
             supportActionBar?.subtitle = null
 
             val panels = repository.getPanels(connectionId)
@@ -466,6 +474,7 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<EditText>(R.id.et_payload).setText(panel.buttonPayload)
         root.findViewById<EditText>(R.id.et_points).setText(panel.chartPoints.toString())
         setupChartOptions(root, panel.chartColor, panel.chartShowScale)
+        setupMultiChart(root, panel)
         showTypeSections(root, panel.type)
 
         MaterialAlertDialogBuilder(this)
@@ -473,6 +482,10 @@ class DashboardActivity : AppCompatActivity() {
             .setView(root)
             .setPositiveButton(R.string.save) { _, _ ->
                 val updated = readPanelForm(root, panel).copy(id = panel.id, connectionId = panel.connectionId)
+                if (updated.type == WidgetType.MULTI_CHART && updated.series.isEmpty()) {
+                    Toast.makeText(this, R.string.multi_need_series, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
                 lifecycleScope.launch {
                     repository.updatePanel(updated)
                     reloadPanels()
@@ -503,6 +516,10 @@ class DashboardActivity : AppCompatActivity() {
             .setPositiveButton(R.string.save) { _, _ ->
                 val newPanel = readPanelForm(root, Panel(connectionId = connectionId))
                     .copy(connectionId = connectionId)
+                if (newPanel.type == WidgetType.MULTI_CHART && newPanel.series.isEmpty()) {
+                    Toast.makeText(this, R.string.multi_need_series, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
                 lifecycleScope.launch {
                     repository.addPanel(newPanel)
                     reloadPanels()
@@ -574,11 +591,156 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<View>(R.id.layout_button).visibility =
             if (type == WidgetType.BUTTON) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.layout_chart).visibility =
+            if (type == WidgetType.CHART || type == WidgetType.MULTI_CHART) View.VISIBLE else View.GONE
+        // У мультиграфика общий цвет линии не выбирается — цвета задаются в сериях
+        root.findViewById<View>(R.id.chart_color_row).visibility =
             if (type == WidgetType.CHART) View.VISIBLE else View.GONE
+        root.findViewById<View>(R.id.layout_multi).visibility =
+            if (type == WidgetType.MULTI_CHART) View.VISIBLE else View.GONE
+        // Темы подписки у мультиграфика живут в сериях
+        root.findViewById<View>(R.id.layout_topic_sub).visibility =
+            if (type == WidgetType.MULTI_CHART) View.GONE else View.VISIBLE
         // Единицы измерения имеют смысл только там, где значение показывают числом/текстом
         root.findViewById<View>(R.id.layout_unit).visibility =
             if (type == WidgetType.SWITCH || type == WidgetType.BUTTON || type == WidgetType.LED)
                 View.GONE else View.VISIBLE
+        // Переключились на мультиграфик при пустом списке — сразу одна пустая серия
+        root.findViewById<View>(R.id.btn_add_series).setOnClickListener { addSeriesRow(root, null) }
+        if (type == WidgetType.MULTI_CHART) {
+            val container = root.findViewById<LinearLayout>(R.id.series_container)
+            if (container.childCount == 0) addSeriesRow(root, null)
+        }
+    }
+
+    /**
+     * Редактор серий мультиграфика: строки «тема + цвет + подпись» создаются
+     * кодом — их число зависит от панели.
+     */
+    private fun setupMultiChart(root: View, panel: Panel) {
+        val container = root.findViewById<LinearLayout>(R.id.series_container)
+        container.removeAllViews()
+        panel.series.forEach { addSeriesRow(root, it) }
+    }
+
+    /** Строка серии: тема + кнопка удаления; ниже — цвет + подпись */
+    private fun addSeriesRow(root: View, series: ChartSeries?) {
+        val container = root.findViewById<LinearLayout>(R.id.series_container)
+        val d = resources.displayMetrics.density
+        val initialColor = series?.color ?: CHART_PALETTE[container.childCount % CHART_PALETTE.size]
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val etTopic = EditText(this).apply {
+            hint = getString(R.string.series_topic)
+            setText(series?.topic ?: "")
+            textSize = 14f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val borderless = android.util.TypedValue().also {
+            theme.resolveAttribute(androidx.appcompat.R.attr.selectableItemBackgroundBorderless, it, true)
+        }
+        val btnRemove = ImageButton(this).apply {
+            setImageResource(R.drawable.ic_delete)
+            setBackgroundResource(borderless.resourceId)
+            val s = (32 * d).toInt()
+            layoutParams = LinearLayout.LayoutParams(s, s).apply { marginStart = (4 * d).toInt() }
+            contentDescription = getString(R.string.series_remove)
+        }
+        top.addView(etTopic)
+        top.addView(btnRemove)
+
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val dotSize = (24 * d).toInt()
+        val dot = View(this)
+        dot.layoutParams = LinearLayout.LayoutParams(dotSize, dotSize).apply { marginEnd = (8 * d).toInt() }
+        dot.background = makeColorDot(initialColor)
+        dot.tag = initialColor
+        dot.contentDescription = getString(R.string.chart_color)
+        dot.setOnClickListener {
+            pickSeriesColor(dot.tag as? String ?: initialColor) { hex ->
+                dot.background = makeColorDot(hex)
+                dot.tag = hex
+            }
+        }
+        val etLabel = EditText(this).apply {
+            hint = getString(R.string.series_label)
+            setText(series?.label ?: "")
+            textSize = 14f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        bottom.addView(dot)
+        bottom.addView(etLabel)
+
+        row.addView(top)
+        row.addView(bottom)
+        btnRemove.setOnClickListener { container.removeView(row) }
+        container.addView(row)
+    }
+
+    /** Выбор цвета серии: палитра в две строки по 6 цветов */
+    private fun pickSeriesColor(current: String, onPick: (String) -> Unit) {
+        val d = resources.displayMetrics.density
+        val grid = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * d).toInt(), (8 * d).toInt(), (24 * d).toInt(), (8 * d).toInt())
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.chart_color)
+            .setView(grid)
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        CHART_PALETTE.chunked(6).forEach { chunk ->
+            val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            chunk.forEach { hex ->
+                val size = (32 * d).toInt()
+                val gap = (4 * d).toInt()
+                val dot = View(this)
+                dot.layoutParams = LinearLayout.LayoutParams(size, size).apply { setMargins(gap, gap, gap, gap) }
+                dot.background = makeColorDot(hex)
+                dot.alpha = if (hex.equals(current, ignoreCase = true)) 1f else 0.55f
+                dot.contentDescription = hex
+                dot.setOnClickListener {
+                    onPick(hex)
+                    dialog.dismiss()
+                }
+                line.addView(dot)
+            }
+            grid.addView(line)
+        }
+        dialog.show()
+    }
+
+    /** Чтение серий из редактора; строки с пустой темой пропускаются */
+    private fun readSeries(root: View): List<ChartSeries> {
+        val container = root.findViewById<LinearLayout>(R.id.series_container) ?: return emptyList()
+        val result = mutableListOf<ChartSeries>()
+        for (i in 0 until container.childCount) {
+            val row = container.getChildAt(i) as LinearLayout
+            val top = row.getChildAt(0) as LinearLayout
+            val bottom = row.getChildAt(1) as LinearLayout
+            val etTopic = top.getChildAt(0) as EditText
+            val dot = bottom.getChildAt(0) as View
+            val etLabel = bottom.getChildAt(1) as EditText
+            val topic = etTopic.text.toString().trim()
+            if (topic.isEmpty()) continue
+            result.add(
+                ChartSeries(
+                    topic = topic,
+                    color = dot.tag as? String ?: CHART_PALETTE[0],
+                    label = etLabel.text.toString().trim()
+                )
+            )
+        }
+        return result
     }
 
     /**
@@ -630,7 +792,7 @@ class DashboardActivity : AppCompatActivity() {
     private fun readPanelForm(root: View, base: Panel): Panel {
         val etType = root.findViewById<EditText>(R.id.et_type)
         val colors = root.findViewById<LinearLayout>(R.id.chart_colors)
-        return base.copy(
+        val panel = base.copy(
             name = root.findViewById<EditText>(R.id.et_name).text.toString().trim()
                 .ifBlank { "Новая панель" },
             type = currentType(etType),
@@ -648,6 +810,10 @@ class DashboardActivity : AppCompatActivity() {
             chartShowScale = root.findViewById<android.widget.CheckBox>(R.id.cb_show_scale).isChecked,
             span = currentSpan(root.findViewById(R.id.et_span)).spanCount
         )
+        return if (panel.type == WidgetType.MULTI_CHART) {
+            // у мультиграфика темы подписки — в сериях, общее поле не используется
+            panel.copy(series = readSeries(root), topicSubscribe = "")
+        } else panel
     }
 
     /** Клон панели: та же конфигурация, новое имя с суффиксом « (копия)» */

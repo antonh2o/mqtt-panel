@@ -86,7 +86,13 @@ class AppRepository(private val context: Context) {
         var pid = 0L
         val oldToNew = connections.mapIndexed { i, c -> c.id to fixedConnections2[i].id }.toMap()
         val fixedPanels = panels.map {
-            it.copy(id = ++pid, connectionId = oldToNew[it.connectionId] ?: it.connectionId)
+            it.copy(
+                id = ++pid,
+                connectionId = oldToNew[it.connectionId] ?: it.connectionId,
+                // Gson не вызывает конструктор: в конфигах до 0.2.9 поля series нет,
+                // и despite non-null тип оно физически null — чистим здесь
+                series = it.series ?: emptyList()
+            )
         }
         return AppConfig(fixedConnections2, fixedPanels)
     }

@@ -61,7 +61,9 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- У мультиграфика темы живут в сериях, общее поле не показываем -->
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_topic_sub"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
@@ -240,6 +242,7 @@
             </com.google.android.material.textfield.TextInputLayout>
 
             <LinearLayout
+                android:id="@+id/chart_color_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
@@ -268,6 +271,38 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="@string/chart_show_scale" />
+
+        </LinearLayout>
+
+        <!-- Параметры для MULTI_CHART: список серий (тема+цвет+подпись) -->
+        <LinearLayout
+            android:id="@+id/layout_multi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/series_title"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/series_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_add_series"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/series_add" />
 
         </LinearLayout>
 

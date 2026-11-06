@@ -33,17 +33,27 @@ class WidgetAdapter(
 
     private val items = mutableListOf<Panel>()
 
+    /** Резервные цвета кружков легенды, если у серии нечитаемый hex */
+    private val legendPalette = listOf(
+        "#4CAF50", "#2196F3", "#FF9800", "#F44336", "#9C27B0", "#00BCD4",
+        "#FFEB3B", "#8BC34A", "#E91E63", "#3F51B5", "#795548", "#607D8B"
+    )
+
     /** Режим перемещения: долгое нажатие начинает перетаскивание, виджеты неактивны */
     var moveMode = false
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     /** История значений для графиков (panelId -> список точек) */
     private val chartHistory = HashMap<Long, MutableList<Float>>()
 
+    /** История серий мультиграфиков («panelId:индексСерии» -> точки) */
+    private val chartMultiHistory = HashMap<String, MutableList<Float>>()
+
     fun submit(list: List<Panel>) {
         items.clear()
         items.addAll(list)
         val ids = list.map { it.id }.toSet()
         chartHistory.keys.retainAll(ids)
+        chartMultiHistory.keys.retainAll { it.substringBefore(':').toLongOrNull() in ids }
         notifyDataSetChanged()
     }
 
@@ -79,7 +89,15 @@ class WidgetAdapter(
     fun updateValueByTopic(topic: String, value: String) {
         var changed = false
         items.forEachIndexed { index, panel ->
-            if (panel.topicSubscribe.isNotBlank() && topicMatches(panel.topicSubscribe, topic)) {
+            if (panel.type == WidgetType.MULTI_CHART) {
+                // значение уходит в те серии, чья тема совпала
+                panel.series.forEachIndexed { i, s ->
+                    if (s.topic.isNotBlank() && topicMatches(s.topic, topic)) {
+                        applyMultiValue(panel, i, value)
+                        changed = true
+                    }
+                }
+            } else if (panel.topicSubscribe.isNotBlank() && topicMatches(panel.topicSubscribe, topic)) {
                 applyValue(index, value)
                 changed = true
             }
@@ -96,6 +114,16 @@ class WidgetAdapter(
                 history.add(v)
                 while (history.size > panel.chartPoints) history.removeAt(0)
             }
+        }
+    }
+
+    /** Значение для серии мультиграфика (panel.lastValue — последнее из любых её тем) */
+    private fun applyMultiValue(panel: Panel, seriesIndex: Int, value: String) {
+        panel.lastValue = value
+        value.toFloatOrNull()?.let { v ->
+            val history = chartMultiHistory.getOrPut("${panel.id}:$seriesIndex") { mutableListOf() }
+            history.add(v)
+            while (history.size > panel.chartPoints) history.removeAt(0)
         }
     }
 
@@ -126,6 +154,7 @@ class WidgetAdapter(
             WidgetType.LED -> R.layout.item_widget_led
             WidgetType.TEXT -> R.layout.item_widget_text
             WidgetType.CHART -> R.layout.item_widget_chart
+            WidgetType.MULTI_CHART -> R.layout.item_widget_multichart
         }
         return BaseHolder(inflater.inflate(layout, parent, false))
     }
@@ -144,6 +173,7 @@ class WidgetAdapter(
         private val button: MaterialButton? = view.findViewById(R.id.btn_press)
         private val ledDot: View? = view.findViewById(R.id.led_dot)
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
+        private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
@@ -159,6 +189,7 @@ class WidgetAdapter(
                 WidgetType.SLIDER -> bindSlider(panel)
                 WidgetType.LED -> bindLed(panel)
                 WidgetType.CHART -> bindChart(panel)
+                WidgetType.MULTI_CHART -> bindMultiChart(panel)
             }
 
             // Долгое нажатие: в режиме перемещения — старт drag & drop,
@@ -284,6 +315,55 @@ class WidgetAdapter(
                 panel.lastValue.toFloatOrNull()?.let { cv.addValue(it) }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
+        }
+
+        /** Мультиграфик: линии по темам серий + легенда «цвет — подпись» */
+        private fun bindMultiChart(panel: Panel) {
+            val cv = chart ?: return
+            cv.maxPoints = panel.chartPoints
+            cv.setMultiSeries(panel.series.map { parseColor(it.color, ChartView.DEFAULT_COLOR) })
+            cv.showScale = panel.chartShowScale
+            cv.clear()
+            panel.series.indices.forEach { i ->
+                chartMultiHistory["${panel.id}:$i"]?.forEach { cv.addMultiValue(i, it) }
+            }
+            tvValue?.text = withUnit(panel, panel.lastValue)
+            // Тема карточки не одна — список тем виден в легенде
+            tvTopic?.visibility = View.GONE
+            buildLegend(panel)
+        }
+
+        private fun buildLegend(panel: Panel) {
+            val lg = legend ?: return
+            val ctx = lg.context
+            val d = ctx.resources.displayMetrics.density
+            lg.removeAllViews()
+            panel.series.forEachIndexed { i, s ->
+                if (s.topic.isBlank() && s.label.isBlank()) return@forEachIndexed
+                val row = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                val dotSize = (10 * d).toInt()
+                val dot = View(ctx)
+                dot.layoutParams = android.widget.LinearLayout.LayoutParams(dotSize, dotSize).apply {
+                    marginEnd = (6 * d).toInt()
+                }
+                val fallback = parseColor(legendPalette[i % legendPalette.size], ChartView.DEFAULT_COLOR)
+                dot.background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(parseColor(s.color, fallback))
+                }
+                row.addView(dot)
+                val label = android.widget.TextView(ctx).apply {
+                    text = s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
+                    textSize = 11f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                }
+                row.addView(label)
+                lg.addView(row)
+            }
         }
 
         private fun parseColor(hex: String, fallback: Int): Int = try {

@@ -126,4 +126,13 @@
     <string name="scan_last">посл.: %1$s</string>
     <string name="scan_hint">Найденные темы брокера. Отметьте нужные — для каждой создадим виджет с подходящим типом.</string>
     <string name="scan_used">уже есть виджет</string>
+
+    <!-- Мультиграфик -->
+    <string name="widget_multi_chart">Мультиграфик</string>
+    <string name="series_title">Серии графика</string>
+    <string name="series_topic">Тема</string>
+    <string name="series_label">Подпись</string>
+    <string name="series_add">Добавить серию</string>
+    <string name="series_remove">Убрать серию</string>
+    <string name="multi_need_series">Добавьте хотя бы одну серию с темой</string>
 </resources>

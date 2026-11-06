@@ -2,23 +2,23 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:fitsSystemWindows="true">
+    android:orientation="vertical">
 
-    <!-- Версия сборки — над тулбаром, чтобы было видно сразу и не мешала статусу -->
+    <!-- Версия сборки — в полосе статус-бара: окно edge-to-edge, инсеты
+         подставляет MainActivity (minHeight = высота статус-бара) -->
     <TextView
         android:id="@+id/tv_version"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingHorizontal="16dp"
-        android:paddingTop="2dp"
         android:textSize="11sp"
         android:textColor="?android:attr/textColorSecondary" />
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
+        android:layout_height="wrap_content"
+        android:minHeight="?attr/actionBarSize"
         android:elevation="2dp"
         android:title="@string/title_connections" />
 

@@ -3,6 +3,16 @@ package ru.mqtt.panel.data
 import java.io.Serializable
 
 /**
+ * Одна линия мультиграфика: тема + цвет + подпись в легенде.
+ * У MULTI_CHART-панели темы подписки живут здесь, а не в topicSubscribe.
+ */
+data class ChartSeries(
+    var topic: String = "",
+    var color: String = "#4CAF50",
+    var label: String = ""
+) : Serializable
+
+/**
  * Модель панели-виджета.
  * Каждая панель привязана к connectionId и имеет тему подписки/публикации.
  */
@@ -27,6 +37,8 @@ data class Panel(
     var chartPoints: Int = 50,
     var chartColor: String = "#4CAF50",
     var chartShowScale: Boolean = true,
+    // для MULTI_CHART: несколько тем на одном графике (легенда цветов)
+    var series: List<ChartSeries> = emptyList(),
     // для LED
     var ledOnColor: String = "#4CAF50",
     var ledOffColor: String = "#F44336",

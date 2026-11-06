@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
         repository = AppRepository(applicationContext)
         setSupportActionBar(binding.toolbar)
         applyTopInsetToToolbar(this, binding.toolbar)
+        applyTopInsetToVersionStrip(binding.tvVersion)
         binding.toolbar.title = getString(R.string.app_name)
         binding.tvVersion.text = "v${appVersion()}"
 

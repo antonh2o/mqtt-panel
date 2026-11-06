@@ -9,12 +9,16 @@ import android.util.AttributeSet
 import android.view.View
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 
 /**
- * Простой линейный график (замена AndroidPlot из narmon-client).
+ * Линейный график (замена AndroidPlot из narmon-client).
  * Хранит последние N точек, рисует линию с заливкой и опциональную
  * вертикальную шкалу «min / max» — без неё график невозможно прочитать.
+ *
+ * Два режима:
+ *  - однолинейный (addValue/lineColor) — как раньше;
+ *  - многолинейный (setMultiSeries/addMultiValue) — серии MULTI_CHART-панели,
+ *    масштаб общий по всем линиям, заливка не рисуется.
  */
 class ChartView @JvmOverloads constructor(
     context: Context,
@@ -22,15 +26,21 @@ class ChartView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    private val points = ArrayDeque<Float>()
+    /** Линия графика: свой цвет и свой буфер точек */
+    private class Series(val color: Int) {
+        val points = ArrayDeque<Float>()
+    }
+
+    private val series = mutableListOf<Series>()
+
     var maxPoints: Int = 50
         set(value) {
             field = value.coerceIn(5, 500)
-            trim()
+            series.forEach { trim(it) }
             invalidate()
         }
 
-    /** Цвет линии задаётся панелью (как topic color в IoT MQTT Panel) */
+    /** Цвет линии однолинейного режима (как topic color в IoT MQTT Panel) */
     var lineColor: Int = DEFAULT_COLOR
         set(value) {
             field = value
@@ -38,6 +48,10 @@ class ChartView @JvmOverloads constructor(
             fillPaint.color = withAlpha(value, FILL_ALPHA)
             gridPaint.color = withAlpha(value, GRID_ALPHA)
             scalePaint.color = withAlpha(value, TEXT_ALPHA)
+            if (series.size == 1) {
+                val old = series[0]
+                series[0] = Series(value).also { it.points.addAll(old.points) }
+            }
             invalidate()
         }
 
@@ -76,20 +90,52 @@ class ChartView @JvmOverloads constructor(
     private val path = Path()
     private val fillPath = Path()
 
+    // --- однолинейный режим ---
+
     fun addValue(value: Float) {
         if (value.isNaN() || value.isInfinite()) return
-        points.addLast(value)
-        trim()
-        invalidate()
+        if (series.size != 1) {
+            series.clear()
+            series.add(Series(lineColor))
+        }
+        addPoint(series[0], value)
     }
 
     fun clear() {
-        points.clear()
+        series.forEach { it.points.clear() }
         invalidate()
     }
 
-    private fun trim() {
-        while (points.size > maxPoints) points.removeFirst()
+    // --- многолинейный режим ---
+
+    /** Переключение на N серий с заданными цветами; пустой список = однолинейный режим */
+    fun setMultiSeries(colors: List<Int>) {
+        series.clear()
+        if (colors.isEmpty()) {
+            series.add(Series(lineColor))
+        } else {
+            colors.forEach { series.add(Series(it)) }
+            // сетка и шкала нейтральные: цвет одной линии ничего не должен выделять
+            gridPaint.color = withAlpha(NEUTRAL_COLOR, GRID_ALPHA)
+            scalePaint.color = withAlpha(NEUTRAL_COLOR, TEXT_ALPHA)
+        }
+        invalidate()
+    }
+
+    fun addMultiValue(index: Int, value: Float) {
+        if (value.isNaN() || value.isInfinite()) return
+        if (index !in series.indices) return
+        addPoint(series[index], value)
+    }
+
+    private fun addPoint(s: Series, value: Float) {
+        s.points.addLast(value)
+        trim(s)
+        invalidate()
+    }
+
+    private fun trim(s: Series) {
+        while (s.points.size > maxPoints) s.points.removeFirst()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -104,41 +150,58 @@ class ChartView @JvmOverloads constructor(
             val y = h * i / 4f
             canvas.drawLine(gutter, y, gutter + w, y, gridPaint)
         }
-        if (points.size < 2) return
 
-        var minV = points.min()
-        var maxV = points.max()
+        val drawable = series.filter { it.points.size >= 2 }
+        if (drawable.isEmpty()) return
+
+        // общий масштаб по всем линиям — иначе линии с разными диапазонами не сравнить
+        var minV = Float.MAX_VALUE
+        var maxV = -Float.MAX_VALUE
+        drawable.forEach { s -> s.points.forEach { v ->
+            if (v < minV) minV = v
+            if (v > maxV) maxV = v
+        } }
         if (abs(maxV - minV) < 1e-6f) {
             minV -= 1f
             maxV += 1f
         }
         val range = maxV - minV
-        val step = w / (points.size - 1)
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
 
-        path.reset()
-        fillPath.reset()
-        var firstX = gutter
-        points.forEachIndexed { i, v ->
-            val x = gutter + i * step
-            val y = h - (v - minV) / range * usableH - 4f * density
-            if (i == 0) {
-                path.moveTo(x, y)
-                fillPath.moveTo(x, h)
-                fillPath.lineTo(x, y)
-                firstX = x
-            } else {
-                path.lineTo(x, y)
-                fillPath.lineTo(x, y)
+        drawable.forEach { s ->
+            val step = w / (s.points.size - 1)
+            path.reset()
+            var firstX = gutter
+            var lastX = gutter
+            s.points.forEachIndexed { i, v ->
+                val x = gutter + i * step
+                val y = h - (v - minV) / range * usableH - 4f * density
+                if (i == 0) {
+                    path.moveTo(x, y)
+                    firstX = x
+                } else {
+                    path.lineTo(x, y)
+                }
+                lastX = x
             }
+            linePaint.color = s.color
+            // заливка только у одиночной линии: у нескольких она мутит график
+            if (series.size == 1) {
+                fillPath.reset()
+                fillPath.moveTo(firstX, h)
+                s.points.forEachIndexed { i, v ->
+                    val x = gutter + i * step
+                    val y = h - (v - minV) / range * usableH - 4f * density
+                    fillPath.lineTo(x, y)
+                }
+                fillPath.lineTo(lastX, h)
+                fillPath.close()
+                fillPaint.color = withAlpha(s.color, FILL_ALPHA)
+                canvas.drawPath(fillPath, fillPaint)
+            }
+            canvas.drawPath(path, linePaint)
         }
-        fillPath.lineTo(gutter + (points.size - 1) * step, h)
-        fillPath.lineTo(firstX, h)
-        fillPath.close()
-
-        canvas.drawPath(fillPath, fillPaint)
-        canvas.drawPath(path, linePaint)
 
         if (showScale) {
             canvas.drawText(format(maxV), 0f, topPad, scalePaint)
@@ -162,5 +225,6 @@ class ChartView @JvmOverloads constructor(
         private const val FILL_ALPHA = 18
         private const val GRID_ALPHA = 28
         private const val TEXT_ALPHA = 75
+        private const val NEUTRAL_COLOR = 0xFF9E9E9E.toInt()
     }
 }

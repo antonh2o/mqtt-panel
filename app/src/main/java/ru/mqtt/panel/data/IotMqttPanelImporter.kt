@@ -204,30 +204,34 @@ object IotMqttPanelImporter {
 
         var pid = counter.toLong()
 
-        // Для line-graph с comboItemList — создаём панель для каждого элемента
+        // line-graph с comboItemList — это мультиграфик: все линии в одной панели
         if (typeStr == "line-graph") {
             val combo = po.getAsJsonArray("comboItemList")
             if (combo != null && combo.size() > 0) {
-                combo.forEach { item ->
+                val seriesList = combo.mapNotNull { item ->
                     val itemObj = item.asJsonObject
                     val itemTopic = itemObj.get("topic")?.asString?.takeIf { it.isNotBlank() } ?: rawTopic
                     val topic = fullTopic(prefix, itemTopic)
-                    val label = itemObj.get("label")?.asString ?: itemObj.get("color")?.asString ?: "Линия"
-                    val color = itemObj.get("color")?.asString ?: "#4CAF50"
-                    val p = Panel(
-                        connectionId = connectionId,
-                        name = label,
-                        type = WidgetType.CHART,
-                        topicSubscribe = topic,
-                        topicPublish = "",
-                        qos = po.get("qos")?.asInt ?: 0,
-                        chartPoints = po.get("maxPersistence")?.asInt ?: 50,
-                        ledOnColor = color,
-                        id = ++pid
+                    if (topic.isBlank()) return@mapNotNull null
+                    ChartSeries(
+                        topic = topic,
+                        color = itemObj.get("color")?.asString ?: "#4CAF50",
+                        label = itemObj.get("label")?.asString ?: topic.substringAfterLast('/')
                     )
-                    panels.add(p)
-                    details.add("      → chart line: '$label' topic='$topic' color='$color'")
                 }
+                val p = Panel(
+                    connectionId = connectionId,
+                    name = panelName,
+                    type = WidgetType.MULTI_CHART,
+                    topicSubscribe = "",
+                    topicPublish = "",
+                    qos = po.get("qos")?.asInt ?: 0,
+                    chartPoints = po.get("maxPersistence")?.asInt ?: 50,
+                    series = seriesList,
+                    id = ++pid
+                )
+                panels.add(p)
+                details.add("      → мультиграфик: ${seriesList.size} линий (${seriesList.joinToString(", ") { "${it.label}=${it.topic}" }})")
                 return Pair(null, pid)
             }
         }

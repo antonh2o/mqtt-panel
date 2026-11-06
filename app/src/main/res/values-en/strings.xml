@@ -126,4 +126,13 @@
     <string name="scan_last">last: %1$s</string>
     <string name="scan_hint">Broker topics found. Check the ones you want — a widget with the right type will be created for each.</string>
     <string name="scan_used">already exists</string>
+
+    <!-- Multi-chart -->
+    <string name="widget_multi_chart">Multi-chart</string>
+    <string name="series_title">Chart series</string>
+    <string name="series_topic">Topic</string>
+    <string name="series_label">Label</string>
+    <string name="series_add">Add series</string>
+    <string name="series_remove">Remove series</string>
+    <string name="multi_need_series">Add at least one series with a topic</string>
 </resources>

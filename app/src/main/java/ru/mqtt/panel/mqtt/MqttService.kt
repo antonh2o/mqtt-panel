@@ -24,6 +24,7 @@ import ru.mqtt.panel.data.MqttConnection
 import ru.mqtt.panel.data.MqttTopicFilter
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.TopicRegistry
+import ru.mqtt.panel.data.WidgetType
 import ru.mqtt.panel.ui.MainActivity
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -255,6 +256,13 @@ class MqttService : Service(), MqttCallbackExtended {
     private fun buildTopicMap() {
         topicMap.clear()
         for (panel in panels) {
+            // Мультиграфик подписан на темы своих серий, а не на topicSubscribe
+            if (panel.type == WidgetType.MULTI_CHART) {
+                panel.series.forEach { s ->
+                    if (s.topic.isNotBlank()) topicMap.getOrPut(s.topic) { mutableListOf() }.add(panel)
+                }
+                continue
+            }
             val topic = panel.topicSubscribe
             if (topic.isBlank()) continue
             topicMap.getOrPut(topic) { mutableListOf() }.add(panel)

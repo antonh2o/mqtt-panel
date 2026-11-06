@@ -53,14 +53,20 @@ class IotMqttPanelImporterTest {
     }
 
     @Test
-    fun `новый формат v214 — графики разложены из comboItemList`() {
-        val charts = report214.config.panels.filter { it.type == WidgetType.CHART }
-        assertTrue("графины есть", charts.isNotEmpty())
-        charts.forEach {
-            assertTrue("тема '${it.topicSubscribe}' должна содержать префикс", it.topicSubscribe.startsWith("antonh2o/"))
-        }
-        // panel_28: 3 линии (Баня, Дом Xiaomi, Улица)
-        assertTrue("как минимум линии графикаTemperature", charts.any { it.name == "Баня" && it.topicSubscribe == "antonh2o/tuwa3/dsw1" })
+    fun `новый формат v214 — combo-график стал мультиграфиком с сериями`() {
+        val multis = report214.config.panels.filter { it.type == WidgetType.MULTI_CHART }
+        assertEquals("combo-графиков в файле 4", 4, multis.size)
+        // panel_28 «Температура»: 3 линии (Баня, Дом Xiaomi, Улица)
+        val temperature = multis.first { it.name == "Температура" }
+        assertEquals(3, temperature.series.size)
+        assertEquals("antonh2o/tuwa3/dsw1", temperature.series[0].topic)
+        assertEquals("Баня", temperature.series[0].label)
+        assertEquals("#fb2d05", temperature.series[0].color)
+        assertTrue(
+            "все темы серий с префиксом",
+            temperature.series.all { it.topic.startsWith("antonh2o/") }
+        )
+        assertEquals("maxPersistence → точки графика", 5, temperature.chartPoints)
     }
 
     @Test
@@ -76,7 +82,8 @@ class IotMqttPanelImporterTest {
     @Test
     fun `импортирует все подключения и панели`() {
         assertEquals(6, report.config.connections.size)
-        assertEquals(110, report.config.panels.size)
+        // 87 исходных панелей: 15 combo-графиков больше не разворачиваются по линиям
+        assertEquals(87, report.config.panels.size)
         assertTrue("не должно быть пропущенных типов: ${report.skipped}", report.skipped.isEmpty())
     }
 
@@ -99,8 +106,8 @@ class IotMqttPanelImporterTest {
         report.config.connections.forEach { c ->
             assertTrue("у '${c.name}' нет панелей (id=${c.id})", (counts[c.id] ?: 0) > 0)
         }
-        // Sonoff: 9 исходных панелей, из них 1 line-graph с 2 линиями → всего 10
-        assertEquals(10, counts[report.config.connections[0].id])
+        // Sonoff: 9 исходных панелей, из них 1 combo-график → 1 мультиграфик, итого 9
+        assertEquals(9, counts[report.config.connections[0].id])
     }
 
     @Test
@@ -121,15 +128,19 @@ class IotMqttPanelImporterTest {
     }
 
     @Test
-    fun `графовые линии разложены в отдельные панели с темами`() {
-        val charts = report.config.panels.filter { it.type == WidgetType.CHART }
-        assertEquals("линий графика должно быть 38", 38, charts.size)
-        charts.forEach {
-            assertTrue("у графика '${it.name}' пустая тема", it.topicSubscribe.isNotBlank())
-            assertTrue(
-                "тема графика '${it.topicSubscribe}' без префикса",
-                it.topicSubscribe.count { ch -> ch == '/' } >= 2
-            )
+    fun `графики стали мультиграфиками с сериями`() {
+        val multis = report.config.panels.filter { it.type == WidgetType.MULTI_CHART }
+        assertEquals("combo-графиков должно быть 15", 15, multis.size)
+        assertEquals("всего линий в сериях — 38", 38, multis.sumOf { it.series.size })
+        multis.forEach { m ->
+            assertTrue("у мультиграфика '${m.name}' нет серий", m.series.isNotEmpty())
+            m.series.forEach { s ->
+                assertTrue("у серии мультиграфика '${m.name}' пустая тема", s.topic.isNotBlank())
+                assertTrue(
+                    "тема серии '${s.topic}' без префикса дашборда",
+                    s.topic.count { ch -> ch == '/' } >= 2
+                )
+            }
         }
     }
 
