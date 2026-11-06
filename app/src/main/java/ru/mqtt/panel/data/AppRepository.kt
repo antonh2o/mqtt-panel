@@ -1,0 +1,208 @@
+package ru.mqtt.panel.data
+
+import android.content.Context
+import android.util.Log
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/**
+ * Хранилище подключений и панелей (JSON-файл во внутренней памяти).
+ * Аналог DatabaseManager из narmon-client, но без SQLite — конфигурация небольшая.
+ */
+class AppRepository(private val context: Context) {
+
+    companion object {
+        private const val TAG = "AppRepository"
+        private const val FILE_NAME = "config.json"
+        private const val BACKUP_NAME = "config.backup.json"
+        private val gson = Gson()
+
+        /**
+         * Кэш один на процесс. Каждый экран создаёт свой AppRepository, и при
+         * раздельных кэшах список подключений возвращал устаревшее число панелей
+         * после того, как панели добавлялись на экране дашборда (сканер, «+»).
+         */
+        private val lock = Any()
+        private var cache: AppConfig? = null
+    }
+
+    private fun load(): AppConfig = synchronized(lock) {
+        cache?.let { return it }
+        val main = java.io.File(context.filesDir, FILE_NAME)
+        val backup = java.io.File(context.filesDir, BACKUP_NAME)
+        // Основной файл мог оборваться на середине записи (усиленная сборка мусора
+        // во время save()) — тогда читаем резервную копию, иначе приложение
+        // «забыло» бы все панели и подключения, как уже случалось.
+        val fromMain = parse(main)
+        val config = (fromMain ?: parse(backup) ?: AppConfig()).fixIds()
+        cache = config
+        if (fromMain == null) {
+            Log.w(TAG, "config.json повреждён/отсутствует — восстановлен из $BACKUP_NAME")
+            save(config)
+        } else {
+            refreshBackup(main, backup)
+        }
+        config
+    }
+
+    /** null — если файл отсутствует, битый или содержит JSON без массивов */
+    private fun parse(file: java.io.File): AppConfig? {
+        if (!file.exists()) return null
+        return try {
+            val type = object : TypeToken<AppConfig>() {}.type
+            val config = gson.fromJson<AppConfig>(file.readText(), type)
+            if (config == null || config.connections == null || config.panels == null) {
+                Log.e(TAG, "Parse ${file.name}: некорректная структура")
+                null
+            } else config
+        } catch (e: Exception) {
+            Log.e(TAG, "Parse ${file.name} error", e)
+            null
+        }
+    }
+
+    private fun refreshBackup(main: java.io.File, backup: java.io.File) {
+        try {
+            if (!backup.exists() || backup.length() != main.length()) {
+                main.copyTo(backup, overwrite = true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Backup error", e)
+        }
+    }
+
+    /** Гарантирует уникальность id после импорта/загрузки */
+    private fun AppConfig.fixIds(): AppConfig {
+        var cid = 0L
+        val fixedConnections = connections.map { it.copy(id = ++cid) }
+        // При импорте на новое устройство генерируем новые ClientID,
+        // чтобы два одинаковых конфига не рвали соединение друг друга
+        val fixedConnections2 = fixedConnections.map { it.copy(
+            clientId = if (it.clientId.isNotBlank()) it.clientId
+            else "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
+        ) }
+        var pid = 0L
+        val oldToNew = connections.mapIndexed { i, c -> c.id to fixedConnections2[i].id }.toMap()
+        val fixedPanels = panels.map {
+            it.copy(id = ++pid, connectionId = oldToNew[it.connectionId] ?: it.connectionId)
+        }
+        return AppConfig(fixedConnections2, fixedPanels)
+    }
+
+    suspend fun getConnections(): List<MqttConnection> = withContext(Dispatchers.IO) {
+        load().connections
+    }
+
+    suspend fun getConnection(id: Long): MqttConnection? = withContext(Dispatchers.IO) {
+        load().connections.find { it.id == id }
+    }
+
+    suspend fun getPanels(connectionId: Long): List<Panel> = withContext(Dispatchers.IO) {
+        load().panels.filter { it.connectionId == connectionId }
+            // Порядок карточек: сохранённый sortOrder, новые — в конце по id
+            .sortedWith(compareBy({ if (it.sortOrder > 0) 0 else 1 }, { it.sortOrder }, { it.id }))
+    }
+
+    /** Все панели (для счётчиков в списке подключений) */
+    suspend fun getAllPanels(): List<Panel> = withContext(Dispatchers.IO) {
+        load().panels
+    }
+
+    suspend fun addConnection(connection: MqttConnection): Long = withContext(Dispatchers.IO) {
+        val config = load()
+        val id = (config.connections.maxOfOrNull { it.id } ?: 0L) + 1
+        save(config.copy(connections = config.connections + connection.copy(id = id)))
+        id
+    }
+
+    suspend fun updateConnection(connection: MqttConnection) = withContext(Dispatchers.IO) {
+        val config = load()
+        save(config.copy(connections = config.connections.map {
+            if (it.id == connection.id) connection else it
+        }))
+    }
+
+    suspend fun deleteConnection(id: Long) = withContext(Dispatchers.IO) {
+        val config = load()
+        save(
+            config.copy(
+                connections = config.connections.filterNot { it.id == id },
+                panels = config.panels.filterNot { it.connectionId == id }
+            )
+        )
+    }
+
+    suspend fun addPanel(panel: Panel): Long = withContext(Dispatchers.IO) {
+        val config = load()
+        val id = (config.panels.maxOfOrNull { it.id } ?: 0L) + 1
+        save(config.copy(panels = config.panels + panel.copy(id = id)))
+        id
+    }
+
+    suspend fun updatePanel(panel: Panel) = withContext(Dispatchers.IO) {
+        val config = load()
+        save(config.copy(panels = config.panels.map {
+            if (it.id == panel.id) panel else it
+        }))
+    }
+
+    suspend fun deletePanel(id: Long) = withContext(Dispatchers.IO) {
+        val config = load()
+        save(config.copy(panels = config.panels.filterNot { it.id == id }))
+    }
+
+    /** Сохранение порядка карточек (режим перемещения) */
+    suspend fun savePanelOrder(ordered: List<Panel>) = withContext(Dispatchers.IO) {
+        val config = load()
+        val order = ordered.withIndex().associate { (i, p) -> p.id to (i + 1) }
+        save(config.copy(panels = config.panels.map { p ->
+            val o = order[p.id]
+            if (o != null && p.sortOrder != o) p.copy(sortOrder = o) else p
+        }))
+    }
+
+    private fun save(config: AppConfig) = synchronized(lock) {
+        cache = config
+        try {
+            val json = gson.toJson(config)
+            val file = java.io.File(context.filesDir, FILE_NAME)
+            // Атомарная запись: сканер добавляет панели пачкой и несколько
+            // save() могли перерезать друг друга посередине файла
+            val tmp = java.io.File(context.filesDir, FILE_NAME + ".tmp")
+            tmp.writeText(json)
+            if (file.exists() && !file.delete()) {
+                Log.w(TAG, "save: не удалось удалить старый config.json")
+            }
+            if (!tmp.renameTo(file)) tmp.writeText(json).let { file.writeText(json) }
+            java.io.File(context.filesDir, BACKUP_NAME).writeText(json)
+        } catch (e: Exception) {
+            Log.e(TAG, "Save error", e)
+        }
+    }
+
+    /**
+     * Экспорт конфигурации в JSON-строку (для выгрузки в файл)
+     */
+    suspend fun exportConfig(): String = withContext(Dispatchers.IO) {
+        gson.toJson(load())
+    }
+
+    /**
+     * Импорт конфигурации из JSON-строки. Полностью заменяет текущую.
+     */
+    suspend fun importConfig(json: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val type = object : TypeToken<AppConfig>() {}.type
+            val config: AppConfig = gson.fromJson(json, type) ?: return@withContext false
+            // Проверяем минимальную валидность
+            if (config.connections.any { it.host.isBlank() }) return@withContext false
+            save(config.fixIds())
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Import error", e)
+            false
+        }
+    }
+}

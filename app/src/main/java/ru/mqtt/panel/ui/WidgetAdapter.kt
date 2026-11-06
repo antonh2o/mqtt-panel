@@ -1,0 +1,300 @@
+package ru.mqtt.panel.ui
+
+import android.content.Context
+import android.graphics.Color
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.slider.Slider
+import ru.mqtt.panel.R
+import ru.mqtt.panel.data.Panel
+import ru.mqtt.panel.data.WidgetType
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.max
+
+/**
+ * Адаптер виджетов на экране дашборда.
+ * Каждый тип панели рендерится своим layout (как панели в IoT MQTT Panel).
+ */
+class WidgetAdapter(
+    private val onEdit: (Panel) -> Unit,
+    private val onDelete: (Panel) -> Unit,
+    private val onDuplicate: (Panel) -> Unit,
+    private val onPublish: (Panel, String) -> Unit,
+    private val onDragStart: (RecyclerView.ViewHolder) -> Unit = {}
+) : RecyclerView.Adapter<WidgetAdapter.BaseHolder>() {
+
+    private val items = mutableListOf<Panel>()
+
+    /** Режим перемещения: долгое нажатие начинает перетаскивание, виджеты неактивны */
+    var moveMode = false
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+    /** История значений для графиков (panelId -> список точек) */
+    private val chartHistory = HashMap<Long, MutableList<Float>>()
+
+    fun submit(list: List<Panel>) {
+        items.clear()
+        items.addAll(list)
+        val ids = list.map { it.id }.toSet()
+        chartHistory.keys.retainAll(ids)
+        notifyDataSetChanged()
+    }
+
+    /** Перезагрузка состава панелей с сохранением уже полученных значений */
+    fun submitKeepingValues(list: List<Panel>) {
+        val values = items.associate { it.id to it.lastValue }
+        submit(list.map { it.copy(lastValue = values[it.id] ?: "") })
+    }
+
+    /** Загрузка панелей другого подключения — старые значения не относятся к ним */
+    fun submitFresh(list: List<Panel>) = submit(list.map { it.copy(lastValue = "") })
+
+    /** Перемещение карточки в режиме перемещения (drag & drop) */
+    fun moveItem(from: Int, to: Int) {
+        if (from == to || from !in items.indices || to !in items.indices) return
+        items.add(to, items.removeAt(from))
+        notifyItemMoved(from, to)
+    }
+
+    /** Текущий порядок — для сохранения sortOrder */
+    fun snapshotOrder(): List<Panel> = items.toList()
+
+    fun panelAt(position: Int): Panel? = items.getOrNull(position)
+
+    fun updateValue(panelId: Long, value: String) {
+        val index = items.indexOfFirst { it.id == panelId }
+        if (index < 0) return
+        applyValue(index, value)
+        notifyItemChanged(index)
+    }
+
+    /** Обновить все панели, подписанные на тему (с учётом MQTT-масок +/#) */
+    fun updateValueByTopic(topic: String, value: String) {
+        var changed = false
+        items.forEachIndexed { index, panel ->
+            if (panel.topicSubscribe.isNotBlank() && topicMatches(panel.topicSubscribe, topic)) {
+                applyValue(index, value)
+                changed = true
+            }
+        }
+        if (changed) notifyDataSetChanged()
+    }
+
+    private fun applyValue(index: Int, value: String) {
+        val panel = items[index]
+        panel.lastValue = value
+        if (panel.type == WidgetType.CHART) {
+            value.toFloatOrNull()?.let { v ->
+                val history = chartHistory.getOrPut(panel.id) { mutableListOf() }
+                history.add(v)
+                while (history.size > panel.chartPoints) history.removeAt(0)
+            }
+        }
+    }
+
+    /** Проверка совпадения темы с учётом подстановочных масок + и # */
+    private fun topicMatches(filter: String, topic: String): Boolean {
+        if (filter == topic) return true
+        val fParts = filter.split('/')
+        val tParts = topic.split('/')
+        for ((i, f) in fParts.withIndex()) {
+            if (f == "#") return true
+            if (i >= tParts.size) return false
+            if (f != "+" && f != tParts[i]) return false
+        }
+        return fParts.size == tParts.size
+    }
+
+    override fun getItemCount(): Int = items.size
+
+    override fun getItemViewType(position: Int): Int = items[position].type.ordinal
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): BaseHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        val layout = when (WidgetType.entries[viewType]) {
+            WidgetType.VALUE -> R.layout.item_widget_value
+            WidgetType.SWITCH -> R.layout.item_widget_switch
+            WidgetType.BUTTON -> R.layout.item_widget_button
+            WidgetType.SLIDER -> R.layout.item_widget_slider
+            WidgetType.LED -> R.layout.item_widget_led
+            WidgetType.TEXT -> R.layout.item_widget_text
+            WidgetType.CHART -> R.layout.item_widget_chart
+        }
+        return BaseHolder(inflater.inflate(layout, parent, false))
+    }
+
+    override fun onBindViewHolder(holder: BaseHolder, position: Int) {
+        holder.bind(items[position])
+    }
+
+    inner class BaseHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val tvName: TextView = view.findViewById(R.id.tv_name)
+        private val btnMenu: View? = view.findViewById(R.id.btn_menu)
+        private val tvTopic: TextView? = view.findViewById(R.id.tv_topic)
+        private val tvValue: TextView? = view.findViewById(R.id.tv_value)
+        private val switch: MaterialSwitch? = view.findViewById(R.id.switch_widget)
+        private val slider: Slider? = view.findViewById(R.id.slider_widget)
+        private val button: MaterialButton? = view.findViewById(R.id.btn_press)
+        private val ledDot: View? = view.findViewById(R.id.led_dot)
+        private val chart: ChartView? = view.findViewById(R.id.chart_view)
+
+        fun bind(panel: Panel) {
+            tvName.text = panel.name
+            tvTopic?.text = panel.topicSubscribe.ifBlank {
+                panel.topicPublish.ifBlank { itemView.context.getString(R.string.no_topic) }
+            }
+
+            when (panel.type) {
+                WidgetType.VALUE -> tvValue?.text = withUnit(panel, panel.lastValue)
+                WidgetType.TEXT -> tvValue?.text = withUnit(panel, panel.lastValue)
+                WidgetType.SWITCH -> bindSwitch(panel)
+                WidgetType.BUTTON -> bindButton(panel)
+                WidgetType.SLIDER -> bindSlider(panel)
+                WidgetType.LED -> bindLed(panel)
+                WidgetType.CHART -> bindChart(panel)
+            }
+
+            // Долгое нажатие: в режиме перемещения — старт drag & drop,
+            // иначе — контекстное меню панели (редактировать/удалить)
+            itemView.setOnLongClickListener {
+                if (moveMode) onDragStart(this) else showMenu(it, panel)
+                true
+            }
+
+            // Троеточие в углу плашки — меню редактировать/удалить
+            btnMenu?.setOnClickListener { anchor -> showMenu(anchor, panel) }
+
+            // В режиме перемещения органы управления карточки неактивны,
+            // чтобы случайный тап не опубликовал команду
+            switch?.isEnabled = !moveMode
+            button?.isEnabled = !moveMode
+            slider?.isEnabled = !moveMode
+            itemView.alpha = if (moveMode) 0.85f else 1f
+        }
+
+        /** Меню панели: редактировать / клонировать / удалить */
+        private fun showMenu(anchor: View, panel: Panel) {
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(anchor.context)
+                .setTitle(panel.name)
+                .setItems(
+                    arrayOf(
+                        anchor.context.getString(R.string.edit_panel),
+                        anchor.context.getString(R.string.duplicate_panel),
+                        anchor.context.getString(R.string.delete_panel)
+                    )
+                ) { _, which ->
+                    when (which) {
+                        0 -> onEdit(panel)
+                        1 -> onDuplicate(panel)
+                        2 -> onDelete(panel)
+                    }
+                }
+                .show()
+        }
+
+        /** Значение с единицей измерения: «24.2 °C», «53%» (как в narodmon) */
+        private fun withUnit(panel: Panel, value: String): String {
+            if (value.isBlank()) return "—"
+            val unit = panel.unitSuffix
+            if (unit.isBlank()) return value
+            // °C и % пишутся впритык к числу, остальные единицы — через пробел
+            val sep = if (unit.startsWith("°") || unit.startsWith("%")) "" else " "
+            return value + sep + unit
+        }
+
+        private fun bindSwitch(panel: Panel) {
+            val sw = switch ?: return
+            val on = panel.lastValue.equals(panel.onPayload, ignoreCase = true) ||
+                panel.lastValue.equals("true", ignoreCase = true) || panel.lastValue == "1"
+            sw.setOnCheckedChangeListener(null)
+            sw.isChecked = on
+            sw.setOnCheckedChangeListener { _, checked ->
+                val payload = if (checked) panel.onPayload else panel.offPayload
+                if (panel.topicPublish.isNotBlank()) onPublish(panel, payload)
+            }
+        }
+
+        private fun bindButton(panel: Panel) {
+            val btn = button ?: return
+            btn.text = panel.buttonPayload.ifBlank { itemView.context.getString(R.string.widget_button) }
+            btn.setOnClickListener {
+                if (panel.topicPublish.isNotBlank()) onPublish(panel, panel.buttonPayload)
+            }
+        }
+
+        private fun bindSlider(panel: Panel) {
+            val sl = slider ?: return
+            sl.valueFrom = panel.sliderMin.toFloat()
+            sl.valueTo = max(panel.sliderMin.toFloat() + 1f, panel.sliderMax.toFloat())
+            sl.stepSize = 0f
+            val current = panel.lastValue.toFloatOrNull()?.coerceIn(sl.valueFrom, sl.valueTo) ?: sl.valueFrom
+            sl.clearOnChangeListeners()
+            sl.clearOnSliderTouchListeners()
+            sl.value = current
+            tvValue?.text = withUnit(panel, formatValue(current))
+            var userChanged = false
+            sl.addOnChangeListener { _, value, fromUser ->
+                tvValue?.text = withUnit(panel, formatValue(value))
+                if (fromUser) userChanged = true
+            }
+            sl.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+                override fun onStartTrackingTouch(slider: Slider) {}
+                override fun onStopTrackingTouch(slider: Slider) {
+                    if (userChanged && panel.topicPublish.isNotBlank()) {
+                        onPublish(panel, formatValue(slider.value))
+                    }
+                    userChanged = false
+                }
+            })
+        }
+
+        private fun bindLed(panel: Panel) {
+            val dot = ledDot ?: return
+            val value = panel.lastValue
+            val isOn = value.equals(panel.onPayload, true) || value.equals("1") ||
+                value.equals("on", true) || value.equals("true", true)
+            val isOff = value.isNotBlank() && !isOn
+            val color = try {
+                if (isOn) Color.parseColor(panel.ledOnColor)
+                else if (isOff) Color.parseColor(panel.ledOffColor)
+                else Color.parseColor("#9E9E9E")
+            } catch (e: IllegalArgumentException) {
+                Color.parseColor("#9E9E9E")
+            }
+            val bg = dot.background.mutate()
+            if (bg is android.graphics.drawable.GradientDrawable) bg.setColor(color)
+            tvValue?.text = value.ifBlank { "—" }
+        }
+
+        private fun bindChart(panel: Panel) {
+            val cv = chart ?: return
+            cv.maxPoints = panel.chartPoints
+            cv.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
+            cv.showScale = panel.chartShowScale
+            cv.clear()
+            chartHistory[panel.id]?.forEach { cv.addValue(it) }
+            if (chartHistory[panel.id].isNullOrEmpty()) {
+                panel.lastValue.toFloatOrNull()?.let { cv.addValue(it) }
+            }
+            tvValue?.text = withUnit(panel, panel.lastValue)
+        }
+
+        private fun parseColor(hex: String, fallback: Int): Int = try {
+            Color.parseColor(hex)
+        } catch (e: IllegalArgumentException) {
+            fallback
+        }
+
+        private fun formatValue(v: Float): String {
+            return if (v == v.toLong().toFloat()) v.toLong().toString()
+            else String.format(Locale.US, "%.2f", v)
+        }
+    }
+}

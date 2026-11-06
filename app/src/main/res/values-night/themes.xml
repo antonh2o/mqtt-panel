@@ -1,0 +1,15 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.MQTTPanel" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">#9DD697</item>
+        <item name="colorOnPrimary">#003900</item>
+        <item name="colorPrimaryContainer">#1F511D</item>
+        <item name="colorSecondary">#BBCBB3</item>
+        <item name="colorOnSecondary">#374634</item>
+        <item name="colorSecondaryContainer">#3D4B38</item>
+        <item name="android:colorBackground">#111311</item>
+        <item name="colorSurface">#111311</item>
+        <item name="colorOnSurface">#E1E3DE</item>
+        <item name="colorError">#FFB4AB</item>
+        <item name="android:statusBarColor">?attr/colorPrimaryContainer</item>
+    </style>
+</resources>

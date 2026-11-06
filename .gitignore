@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Kotlin
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Локальная конфигурация (пути SDK)
+local.properties
+
+# Секреты release-подписи — в репозиторий НЕ попадают
+# (см. комментарий в app/build.gradle.kts: ключ нужен на машине сборки)
+keystore/
+keystore.properties
+
+# Прочее
+*.log
+.DS_Store
