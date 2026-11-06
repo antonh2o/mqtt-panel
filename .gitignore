@@ -19,6 +19,9 @@ local.properties
 keystore/
 keystore.properties
 
+# Локальный журнал проекта (не для публичного репозитория)
+KODA.md
+
 # Прочее
 *.log
 .DS_Store
