@@ -153,4 +153,7 @@
     <string name="color_range_max">max</string>
     <string name="color_range_clear">Clear colors</string>
     <string name="color_range_hint">Range = the panel Min/Max values. In-between values get a smooth color transition. Tap a dot to pick a color, „Clear" to disable</string>
+    <string name="theme_light">Light theme</string>
+    <string name="theme_dark">Dark theme</string>
+    <string name="theme_system">Follow system</string>
 </resources>

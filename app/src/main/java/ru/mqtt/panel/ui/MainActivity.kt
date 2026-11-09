@@ -111,6 +111,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // тема до инфлейта: светлая / тёмная / системная (кнопки на тулбаре)
+        ThemePrefs.apply(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -126,6 +128,38 @@ class MainActivity : AppCompatActivity() {
             supportFragmentManager.beginTransaction()
                 .replace(R.id.fragment_container, ConnectionListFragment.newInstance())
                 .commit()
+        }
+    }
+
+    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_theme, menu)
+        updateThemeIcons(menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
+        val mode = when (item.itemId) {
+            R.id.action_theme_light -> ThemePrefs.LIGHT
+            R.id.action_theme_dark -> ThemePrefs.DARK
+            R.id.action_theme_auto -> ThemePrefs.SYSTEM
+            else -> return super.onOptionsItemSelected(item)
+        }
+        ThemePrefs.save(this, mode)
+        updateThemeIcons(currentMenu ?: return true)
+        return true
+    }
+
+    private var currentMenu: android.view.Menu? = null
+
+    /** Активная тема — яркая иконка, остальные приглушены */
+    private fun updateThemeIcons(menu: android.view.Menu) {
+        currentMenu = menu
+        mapOf(
+            R.id.action_theme_light to ThemePrefs.LIGHT,
+            R.id.action_theme_dark to ThemePrefs.DARK,
+            R.id.action_theme_auto to ThemePrefs.SYSTEM
+        ).forEach { (id, mode) ->
+            menu.findItem(id)?.icon?.mutate()?.setAlpha(ThemePrefs.alphaFor(this, mode).let { (it * 255).toInt() })
         }
     }
 

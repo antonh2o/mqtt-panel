@@ -68,6 +68,13 @@ class ChartView @JvmOverloads constructor(
             invalidate()
         }
 
+    /**
+     * Динамическая раскраска линии по значению (диапазон мин→середина→макс
+     * панели): каждый сегмент и каждая точка красятся цветом своего значения.
+     * null — линия рисуется одним цветом (lineColor / цвет серии).
+     */
+    var valueColorizer: ((Float) -> Int)? = null
+
     private val density = resources.displayMetrics.density
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -205,31 +212,58 @@ class ChartView @JvmOverloads constructor(
         fun y(v: Float) = h - (v - minV) / range * usableH - 4f * density
 
         drawable.forEach { s ->
-            path.reset()
-            var firstX = 0f
-            var lastX = 0f
-            s.points.forEachIndexed { i, p ->
-                val px = x(p.t)
-                val py = y(p.v)
-                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-                if (i == 0) firstX = px
-                lastX = px
+            // Линия по сегментам: с динамической раскраской каждый сегмент и каждая
+            // точка красятся цветом своего значения; иначе — одним цветом серии.
+            if (valueColorizer != null) {
+                var prev = s.points.first()
+                for (i in 1 until s.points.size) {
+                    val cur = s.points[i]
+                    val color = valueColorizer!!((prev.v + cur.v) / 2)
+                    linePaint.color = color
+                    path.reset()
+                    path.moveTo(x(prev.t), y(prev.v))
+                    path.lineTo(x(cur.t), y(cur.v))
+                    canvas.drawPath(path, linePaint)
+                    // заливка только у одиночной линии
+                    if (series.size == 1) {
+                        fillPath.reset()
+                        fillPath.moveTo(x(prev.t), y(prev.v))
+                        fillPath.lineTo(x(cur.t), y(cur.v))
+                        fillPath.lineTo(x(cur.t), h)
+                        fillPath.lineTo(x(prev.t), h)
+                        fillPath.close()
+                        fillPaint.color = withAlpha(color, FILL_ALPHA)
+                        canvas.drawPath(fillPath, fillPaint)
+                    }
+                    prev = cur
+                }
+            } else {
+                path.reset()
+                var firstX = 0f
+                var lastX = 0f
+                s.points.forEachIndexed { i, p ->
+                    val px = x(p.t)
+                    val py = y(p.v)
+                    if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                    if (i == 0) firstX = px
+                    lastX = px
+                }
+                linePaint.color = s.color
+                // заливка только у одиночной линии: у нескольких она мутит график
+                if (series.size == 1) {
+                    fillPath.reset()
+                    fillPath.moveTo(firstX, h)
+                    s.points.forEach { p -> fillPath.lineTo(x(p.t), y(p.v)) }
+                    fillPath.lineTo(lastX, h)
+                    fillPath.close()
+                    fillPaint.color = withAlpha(s.color, FILL_ALPHA)
+                    canvas.drawPath(fillPath, fillPaint)
+                }
+                canvas.drawPath(path, linePaint)
             }
-            linePaint.color = s.color
-            // заливка только у одиночной линии: у нескольких она мутит график
-            if (series.size == 1) {
-                fillPath.reset()
-                fillPath.moveTo(firstX, h)
-                s.points.forEach { p -> fillPath.lineTo(x(p.t), y(p.v)) }
-                fillPath.lineTo(lastX, h)
-                fillPath.close()
-                fillPaint.color = withAlpha(s.color, FILL_ALPHA)
-                canvas.drawPath(fillPath, fillPaint)
-            }
-            canvas.drawPath(path, linePaint)
-            // точки измерений
-            dotPaint.color = s.color
+            // точки измерений — цветом своего значения
             s.points.forEach { p ->
+                dotPaint.color = valueColorizer?.invoke(p.v) ?: s.color
                 canvas.drawCircle(x(p.t), y(p.v), 2.2f * density, dotPaint)
             }
         }

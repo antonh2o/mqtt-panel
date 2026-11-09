@@ -196,6 +196,8 @@ class DashboardActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // тема до инфлейта: светлая / тёмная / системная (выбор на главном экране)
+        ThemePrefs.apply(this)
         binding = ActivityDashboardBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -843,9 +845,10 @@ class DashboardActivity : AppCompatActivity() {
             if (narodmon) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.btn_pick_sensor).visibility =
             if (narodmon) View.VISIBLE else View.GONE
-        // Динамический цвет значения — для панелей, показывающих число/текст
+        // Динамический цвет значения — для панелей, показывающих число/текст/график
         root.findViewById<View>(R.id.layout_color_range).visibility =
-            if (type == WidgetType.VALUE || type == WidgetType.TEXT) View.VISIBLE else View.GONE
+            if (type == WidgetType.VALUE || type == WidgetType.TEXT || type == WidgetType.CHART)
+                View.VISIBLE else View.GONE
         // Диапазон Мин/Макс нужен слайдеру и динамическому цвету значения
         root.findViewById<View>(R.id.layout_slider).visibility =
             if (type == WidgetType.SLIDER || type == WidgetType.VALUE || type == WidgetType.TEXT)

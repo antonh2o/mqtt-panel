@@ -153,4 +153,7 @@
     <string name="color_range_max">макс</string>
     <string name="color_range_clear">Сбросить цвета</string>
     <string name="color_range_hint">Диапазон — значения Мин/Макс панели. Промежуточные значения — плавный переход цветов. Тап по кружку — выбор цвета, «Сбросить» — выключить</string>
+    <string name="theme_light">Светлая тема</string>
+    <string name="theme_dark">Тёмная тема</string>
+    <string name="theme_system">Как в системе</string>
 </resources>

@@ -407,6 +407,17 @@ class WidgetAdapter(
             cv.maxPoints = panel.chartPoints
             cv.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
             cv.showScale = panel.chartShowScale
+            // динамическая раскраска линии по значению (мин→середина→макс),
+            // если у панели заданы все три цвета диапазона
+            cv.valueColorizer =
+                if (panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank())
+                    { v ->
+                        ColorRange.resolve(
+                            panel.colorMin, panel.colorMid, panel.colorMax,
+                            panel.sliderMin, panel.sliderMax, v.toDouble()
+                        ) ?: parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
+                    }
+                else null
             cv.clear()
             chartHistory[panel.id]?.forEach { cv.addTimePoint(it.t, it.v) }
             if (chartHistory[panel.id].isNullOrEmpty()) {
