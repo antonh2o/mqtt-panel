@@ -143,6 +143,10 @@
     <string name="add_all_sensors">Добавить все датчики разом</string>
     <string name="sensors_already_added">Все датчики уже добавлены</string>
     <string name="sensors_added_count">Добавлено панелей: %1$d</string>
+    <string name="field_history_period">Период истории</string>
+    <string name="period_day">Сутки</string>
+    <string name="period_week">Неделя</string>
+    <string name="period_month">Месяц</string>
     <string name="sensor_picker_title">Датчики Народного Мониторинга</string>
     <string name="sensor_none">Датчики не найдены. Проверьте логин/пароль в подключении и лимит платформы</string>
     <string name="sensor_loading">Загрузка датчиков…</string>

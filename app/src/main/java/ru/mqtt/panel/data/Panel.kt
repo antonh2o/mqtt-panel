@@ -62,6 +62,8 @@ data class Panel(
     var colorMin: String = "",
     var colorMid: String = "",
     var colorMax: String = "",
+    // период истории графика Народмона: day / week / month
+    var historyPeriod: String? = "day",
     // время последнего принятого значения (runtime: в конфиг не пишется,
     // хранится в runtime-<id>.json вместе с историей графиков)
     var lastTime: Long = 0,

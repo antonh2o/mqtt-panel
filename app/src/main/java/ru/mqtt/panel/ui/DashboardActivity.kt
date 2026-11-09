@@ -540,6 +540,7 @@ class DashboardActivity : AppCompatActivity() {
         setupSensorPicker(root)
         setupUnitPresets(root)
         setupColorRange(root, panel)
+        setupHistoryPeriod(root, panel)
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
             .isChecked = panel.showTime == true
         showTypeSections(root, panel.type)
@@ -586,6 +587,7 @@ class DashboardActivity : AppCompatActivity() {
             connectionId = connectionId,
             colorMin = "#2196F3", colorMid = "#4CAF50", colorMax = "#F44336"
         ))
+        setupHistoryPeriod(root, panel = Panel(connectionId = connectionId))
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
             .isChecked = true
         showTypeSections(root, WidgetType.VALUE)
@@ -852,26 +854,29 @@ class DashboardActivity : AppCompatActivity() {
                 var first = true
                 for (panel in chartPanels) {
                     val sensorId = panel.topicSubscribe.toIntOrNull() ?: continue
+                    val period = panel.historyPeriod ?: "day"
                     val runtime = repository.loadRuntimeValues(connectionId)
-                    val fetchedAt = runtime["${panel.id}"]?.fetchedAt ?: 0L
-                    if (System.currentTimeMillis() - fetchedAt < 30 * 60_000L &&
-                        runtime["${panel.id}"]?.history?.isNotEmpty() == true
-                    ) continue
+                    val rt = runtime["${panel.id}"]
+                    val fresh = System.currentTimeMillis() - (rt?.fetchedAt ?: 0L) < 30 * 60_000L
+                    if (fresh && rt?.history?.isNotEmpty() == true && rt?.period == period) continue
 
                     if (!first) delay(45_000L) // лимит платформы ≈3 запроса/мин
                     first = false
                     val points = runCatching {
-                        NarodmonApi.sensorsHistory(applicationContext, connection.apiKey, sensorId)
+                        NarodmonApi.sensorsHistory(applicationContext, connection.apiKey, sensorId, period)
                     }.getOrElse { emptyList() }
                     if (points.isEmpty()) continue
 
                     withContext(Dispatchers.Main) {
                         widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
                     }
-                    // запомнить, что историю по этой панели уже тянули
+                    // запомнить историю и период: смена периода вызывает перезагрузку
                     val all = repository.loadRuntimeValues(connectionId).toMutableMap()
                     all["${panel.id}"] = (all["${panel.id}"]
-                        ?: AppRepository.RuntimeValue()).copy(fetchedAt = System.currentTimeMillis())
+                        ?: AppRepository.RuntimeValue()).copy(
+                        fetchedAt = System.currentTimeMillis(),
+                        period = period
+                    )
                     repository.saveRuntimeValues(connectionId, all)
                 }
             } finally {
@@ -921,6 +926,30 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
+    /** Выбор периода истории Народмона: Сутки / Неделя / Месяц */
+    private fun setupHistoryPeriod(root: View, panel: Panel) {
+        val periods = listOf("day", "week", "month")
+        val labels = listOf(
+            getString(R.string.period_day),
+            getString(R.string.period_week),
+            getString(R.string.period_month)
+        )
+        val et = root.findViewById<EditText>(R.id.et_history_period)
+        val current = periods.indexOf(panel.historyPeriod).takeIf { it >= 0 } ?: 0
+        et.setText(labels[current])
+        et.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.field_history_period)
+                .setSingleChoiceItems(labels.toTypedArray(), current) { d, which ->
+                    et.setText(labels[which])
+                    et.tag = periods[which]
+                    d.dismiss()
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+    }
+
     private fun showTypeSections(root: View, type: WidgetType) {
         val narodmon = useNarodmon()
         root.findViewById<View>(R.id.layout_switch).visibility =
@@ -949,6 +978,9 @@ class DashboardActivity : AppCompatActivity() {
         // и кнопка добавления всех датчиков аккаунта разом
         root.findViewById<View>(R.id.btn_add_all_sensors).visibility =
             if (narodmon) View.VISIBLE else View.GONE
+        // Период истории — только у narodmon-графиков
+        root.findViewById<View>(R.id.layout_history_period).visibility =
+            if (narodmon && type == WidgetType.CHART) View.VISIBLE else View.GONE
         val progress = type == WidgetType.PROGRESS_V || type == WidgetType.PROGRESS_H
         // Динамический цвет значения/полосы прогресса — число, текст, график, прогресс
         root.findViewById<View>(R.id.layout_color_range).visibility =
@@ -1179,6 +1211,8 @@ class DashboardActivity : AppCompatActivity() {
             chartShowScale = root.findViewById<android.widget.CheckBox>(R.id.cb_show_scale).isChecked,
             span = currentSpan(root.findViewById(R.id.et_span)).spanCount,
             showTime = root.findViewById<android.widget.CheckBox>(R.id.cb_show_time).isChecked,
+            historyPeriod = root.findViewById<EditText>(R.id.et_history_period).tag
+                as? String ?: root.findViewById<EditText>(R.id.et_history_period).text.toString(),
             colorMin = dotTag(root, R.id.dot_color_min),
             colorMid = dotTag(root, R.id.dot_color_mid),
             colorMax = dotTag(root, R.id.dot_color_max),

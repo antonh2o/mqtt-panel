@@ -46,12 +46,10 @@
             android:orientation="horizontal">
 
             <!-- вертикальная полоса: max задаётся кодом (10000), значение — доля (Мин/Макс) -->
-            <ProgressBar
-                android:id="@+id/progress_bar"
-                android:progressDrawable="@drawable/progress_vertical"
+            <ru.mqtt.panel.ui.VerticalProgressView
+                android:id="@+id/progress_vertical"
                 android:layout_width="28dp"
-                android:layout_height="120dp"
-                android:max="10000" />
+                android:layout_height="120dp" />
 
             <TextView
                 android:id="@+id/tv_value"

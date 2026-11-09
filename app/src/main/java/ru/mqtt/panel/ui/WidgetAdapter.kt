@@ -255,6 +255,7 @@ class WidgetAdapter(
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
         private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
         private val progressBar: android.widget.ProgressBar? = view.findViewById(R.id.progress_bar)
+        private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
@@ -286,8 +287,8 @@ class WidgetAdapter(
                 WidgetType.LED -> bindLed(panel)
                 WidgetType.CHART -> bindChart(panel)
                 WidgetType.MULTI_CHART -> bindMultiChart(panel)
-                WidgetType.PROGRESS_V -> bindProgress(bar = progressBar, panel = panel)
-                WidgetType.PROGRESS_H -> bindProgress(bar = progressBar, panel = panel)
+                WidgetType.PROGRESS_V -> bindProgress(null, verticalProgress, panel)
+                WidgetType.PROGRESS_H -> bindProgress(progressBar, null, panel)
             }
 
             // Долгое нажатие: в режиме перемещения — старт drag & drop,
@@ -356,20 +357,29 @@ class WidgetAdapter(
         tv.setTextColor(color ?: defaultValueColor!!)
     }
 
-        /** Полоса прогресса: доля значения в диапазоне Мин/Макс панели,
-         *  динамическая раскраска полосы по значению (если цвета заданы). */
-        private fun bindProgress(bar: android.widget.ProgressBar?, panel: Panel) {
-            if (bar == null) return
+        /** Полоса прогресса (горизонтальная или вертикальная): доля значения в
+         *  диапазоне Мин/Макс панели, динамическая раскраска по значению. */
+        private fun bindProgress(
+            bar: android.widget.ProgressBar?,
+            vertical: VerticalProgressView?,
+            panel: Panel
+        ) {
+            if (bar == null && vertical == null) return
             val min = panel.sliderMin
             val max = if (panel.sliderMax > min) panel.sliderMax else min + 100
             val v = panel.lastValue.toFloatOrNull()?.toDouble()
-            bar.max = 10000
-            bar.progress = if (v == null) 0
-            else (((v - min) / (max - min)) * 10000).toInt().coerceIn(0, 10000)
+            val fraction = if (v == null) 0f
+            else (((v - min) / (max - min)).toFloat()).coerceIn(0f, 1f)
+            bar?.max = 10000
+            bar?.progress = (fraction * 10000).toInt()
             if (v != null) {
                 ColorRange.resolve(panel.colorMin, panel.colorMid, panel.colorMax, min, max, v)
-                    ?.let { c -> bar.progressTintList = android.content.res.ColorStateList.valueOf(c) }
+                    ?.let { c ->
+                        bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
+                        vertical?.fillColor = c
+                    }
             }
+            vertical?.fraction = fraction
             tvValue?.text = withUnit(panel, panel.lastValue)
         }
 

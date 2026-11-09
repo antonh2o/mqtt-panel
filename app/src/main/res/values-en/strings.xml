@@ -143,6 +143,10 @@
     <string name="add_all_sensors">Add all sensors at once</string>
     <string name="sensors_already_added">All sensors are already added</string>
     <string name="sensors_added_count">Panels added: %1$d</string>
+    <string name="field_history_period">History period</string>
+    <string name="period_day">Day</string>
+    <string name="period_week">Week</string>
+    <string name="period_month">Month</string>
     <string name="sensor_picker_title">Narodmon sensors</string>
     <string name="sensor_none">No sensors found. Check the login/password in the connection and the platform rate limit</string>
     <string name="sensor_loading">Loading sensors…</string>

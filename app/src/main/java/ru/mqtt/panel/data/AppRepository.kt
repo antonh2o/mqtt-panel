@@ -101,7 +101,8 @@ class AppRepository(private val context: Context) {
                 lastTime = it.lastTime ?: 0L,
                 colorMin = it.colorMin ?: "",
                 colorMid = it.colorMid ?: "",
-                colorMax = it.colorMax ?: ""
+                colorMax = it.colorMax ?: "",
+                historyPeriod = it.historyPeriod ?: "day"
             )
         }
         return AppConfig(fixedConnections2, fixedPanels)
@@ -218,7 +219,9 @@ class AppRepository(private val context: Context) {
         /** история точек графиков: [[время_мс, значение], ...] */
         val history: List<List<Double>> = emptyList(),
         /** когда последний раз тянули историю из Народмона (мс) */
-        val fetchedAt: Long = 0
+        val fetchedAt: Long = 0,
+        /** за какой период тянули историю (day/week/month) */
+        val period: String = ""
     )
 
     private fun runtimeFile(context: Context, connectionId: Long): java.io.File =

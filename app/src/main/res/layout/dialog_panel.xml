@@ -129,6 +129,25 @@
             android:text="@string/add_all_sensors"
             android:visibility="gone" />
 
+        <!-- Период истории графика Народмона (сутки/неделя/месяц) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_history_period"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="@string/field_history_period"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_history_period"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text"
+                android:focusable="false"
+                android:clickable="true" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
