@@ -48,8 +48,8 @@ class IotMqttPanelImporterTest {
         val panels = report214.config.panels.filter { it.connectionId == tuwa.id }
         val banya = panels.first { it.name.startsWith("Баня ds18b") }
         assertEquals("antonh2o/tuwa3/dsw1", banya.topicSubscribe)
-        // progress — новый тип вместо vertical-meter
-        assertEquals(WidgetType.VALUE, banya.type)
+        // progress импортируется прогрессом по ориентации (horizontal)
+        assertEquals(WidgetType.PROGRESS_H, banya.type)
     }
 
     @Test
@@ -118,7 +118,8 @@ class IotMqttPanelImporterTest {
 
         val kotел = panels.first { it.name.startsWith("Котел") }
         assertEquals("/user/f60413/sonoff1/dsw1", kotел.topicSubscribe)
-        assertEquals(WidgetType.VALUE, kotел.type)
+        assertEquals("vertical-meter импортируется вертикальным прогрессом",
+            WidgetType.PROGRESS_V, kotел.type)
 
         val slider = panels.first { it.type == WidgetType.SLIDER }
         assertTrue(
@@ -142,6 +143,19 @@ class IotMqttPanelImporterTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun `vertical-meter импортируются вертикальным прогрессом (v54)`() {
+        val progressV = report.config.panels.filter { it.type == WidgetType.PROGRESS_V }
+        assertEquals(49, progressV.size)
+        assertTrue(report.config.panels.none { it.type == WidgetType.PROGRESS_H })
+    }
+
+    @Test
+    fun `прогрессы v214 раскладываются по ориентации`() {
+        assertEquals(20, report214.config.panels.count { it.type == WidgetType.PROGRESS_V })
+        assertEquals(3, report214.config.panels.count { it.type == WidgetType.PROGRESS_H })
     }
 
     @Test

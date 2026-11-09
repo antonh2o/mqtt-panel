@@ -216,7 +216,9 @@ class AppRepository(private val context: Context) {
         val last: String = "",
         val time: Long = 0,
         /** история точек графиков: [[время_мс, значение], ...] */
-        val history: List<List<Double>> = emptyList()
+        val history: List<List<Double>> = emptyList(),
+        /** когда последний раз тянули историю из Народмона (мс) */
+        val fetchedAt: Long = 0
     )
 
     private fun runtimeFile(context: Context, connectionId: Long): java.io.File =

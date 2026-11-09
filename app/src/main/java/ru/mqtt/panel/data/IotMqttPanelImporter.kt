@@ -236,7 +236,14 @@ object IotMqttPanelImporter {
             }
         }
 
-        val widgetType = mapPanelType(typeStr)
+        val widgetType = when (typeStr) {
+            // прогресс с ориентацией: vertical-meter — всегда вертикальный,
+            // progress — по полю orientation (vertical/horizontal)
+            "vertical-meter" -> WidgetType.PROGRESS_V
+            "progress" -> if ((po.get("orientation")?.asString ?: "")
+                .equals("vertical", ignoreCase = true)) WidgetType.PROGRESS_V else WidgetType.PROGRESS_H
+            else -> mapPanelType(typeStr)
+        }
         if (widgetType == null) {
             skipped.add(typeStr)
             return Pair(null, counter)
@@ -285,7 +292,7 @@ object IotMqttPanelImporter {
     }
 
     private fun mapPanelType(typeStr: String): WidgetType? = when (typeStr) {
-        "vertical-meter", "meter", "progress" -> WidgetType.VALUE
+        "meter" -> WidgetType.VALUE
         "slider" -> WidgetType.SLIDER
         "switch" -> WidgetType.SWITCH
         "button" -> WidgetType.BUTTON

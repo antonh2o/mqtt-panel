@@ -17,7 +17,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.recyclerview.widget.GridLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.ChartSeries
@@ -72,6 +75,10 @@ class DashboardActivity : AppCompatActivity() {
     /** Пользователь сам нажал «Отключить» — не переподключаться молча */
     private var userDisconnected = false
     private var dragHelper: androidx.recyclerview.widget.ItemTouchHelper? = null
+    /** открытый диалог редактора панели — закрывается при батч-операциях */
+    private var panelDialog: androidx.appcompat.app.AlertDialog? = null
+    /** идёт загрузка историй графиков Народмона (чтобы не стартовать дважды) */
+    private var historyLoading = false
 
     // --- сервис-агностика: подключение обслуживает MqttService или NarodmonService ---
 
@@ -464,6 +471,10 @@ class DashboardActivity : AppCompatActivity() {
             widgetAdapter.applyCached(cached)
             binding.tvEmpty.visibility = if (panels.isEmpty()) View.VISIBLE else View.GONE
 
+            // Графики Народмона: подтянуть историю за сутки (пачками, с паузами
+            // из-за лимита платформы), live-точки допишутся поверх
+            if (connection.narodmon) loadNarodmonChartHistory(panels)
+
             // У narodmon-подключения сканер топиков бессмыслен — прячем кнопку
             binding.btnScan.visibility = if (connection.narodmon) View.GONE else View.VISIBLE
 
@@ -530,7 +541,7 @@ class DashboardActivity : AppCompatActivity() {
         setupUnitPresets(root)
         setupColorRange(root, panel)
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
-            .isChecked = panel.showTime
+            .isChecked = panel.showTime == true
         showTypeSections(root, panel.type)
 
         MaterialAlertDialogBuilder(this)
@@ -550,6 +561,7 @@ class DashboardActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+            .also { panelDialog = it }
     }
 
     private fun addPanel() {
@@ -595,6 +607,7 @@ class DashboardActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+            .also { panelDialog = it }
     }
 
     /**
@@ -605,6 +618,7 @@ class DashboardActivity : AppCompatActivity() {
         val etSensor = root.findViewById<EditText>(R.id.et_topic_sensor)
         etSensor.setOnClickListener { pickSensor(root, etSensor) }
         root.findViewById<View>(R.id.btn_pick_sensor).setOnClickListener { pickSensor(root, etSensor) }
+        root.findViewById<View>(R.id.btn_add_all_sensors).setOnClickListener { addAllNarodmonSensors(root) }
     }
 
     private fun pickSensor(root: View, etSensor: EditText) {
@@ -820,6 +834,93 @@ class DashboardActivity : AppCompatActivity() {
     private fun dotTag(root: View, id: Int): String =
         root.findViewById<View>(id).tag as? String ?: ""
 
+    /**
+     * Истории графиков Народмона: для каждой narodmon-панели типа График —
+     * sensorsHistory (сутки) с паузами из-за лимита платформы (≈3 запроса/мин).
+     * Обновление не чаще раза в 30 минут (время — в runtime-кэше панели).
+     */
+    private fun loadNarodmonChartHistory(panels: List<Panel>) {
+        if (historyLoading) return
+        val connection = loadedConnection ?: return
+        val chartPanels = panels.filter {
+            it.type == WidgetType.CHART && it.source == "narodmon"
+        }
+        if (chartPanels.isEmpty()) return
+        historyLoading = true
+        lifecycleScope.launch {
+            try {
+                var first = true
+                for (panel in chartPanels) {
+                    val sensorId = panel.topicSubscribe.toIntOrNull() ?: continue
+                    val runtime = repository.loadRuntimeValues(connectionId)
+                    val fetchedAt = runtime["${panel.id}"]?.fetchedAt ?: 0L
+                    if (System.currentTimeMillis() - fetchedAt < 30 * 60_000L &&
+                        runtime["${panel.id}"]?.history?.isNotEmpty() == true
+                    ) continue
+
+                    if (!first) delay(45_000L) // лимит платформы ≈3 запроса/мин
+                    first = false
+                    val points = runCatching {
+                        NarodmonApi.sensorsHistory(applicationContext, connection.apiKey, sensorId)
+                    }.getOrElse { emptyList() }
+                    if (points.isEmpty()) continue
+
+                    withContext(Dispatchers.Main) {
+                        widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
+                    }
+                    // запомнить, что историю по этой панели уже тянули
+                    val all = repository.loadRuntimeValues(connectionId).toMutableMap()
+                    all["${panel.id}"] = (all["${panel.id}"]
+                        ?: AppRepository.RuntimeValue()).copy(fetchedAt = System.currentTimeMillis())
+                    repository.saveRuntimeValues(connectionId, all)
+                }
+            } finally {
+                historyLoading = false
+            }
+        }
+    }
+
+    /**
+     * «Добавить все датчики разом»: для каждого датчика аккаунта, у которого
+     * ещё нет панели, создаётся карточка Значение (ед. измерения — от платформы).
+     */
+    private fun addAllNarodmonSensors(root: View) {
+        val connection = loadedConnection ?: return
+        Toast.makeText(this, R.string.sensor_loading, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val sensors = runCatching {
+                NarodmonApi.ensureLogon(applicationContext, connection.apiKey, connection.username, connection.password)
+                NarodmonApi.sensorsNearby(applicationContext, connection.apiKey)
+            }.getOrElse { emptyList() }
+            val existing = repository.getPanels(connectionId)
+                .filter { it.source == "narodmon" }
+                .mapNotNull { it.topicSubscribe.toIntOrNull() }
+                .toSet()
+            val fresh = sensors.filter { it.id != 0 && it.id !in existing }
+            if (fresh.isEmpty()) {
+                Toast.makeText(this@DashboardActivity,
+                    getString(R.string.sensors_already_added), Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            fresh.forEach { s ->
+                repository.addPanel(
+                    Panel(
+                        name = s.name.ifBlank { "#${s.id}" },
+                        type = WidgetType.VALUE,
+                        topicSubscribe = s.id.toString(),
+                        unitSuffix = NarodmonApi.prettyUnit(s.unit),
+                        source = "narodmon",
+                        connectionId = connectionId
+                    )
+                )
+            }
+            reloadPanels()
+            panelDialog?.dismiss()
+            Toast.makeText(this@DashboardActivity,
+                getString(R.string.sensors_added_count, fresh.size), Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun showTypeSections(root: View, type: WidgetType) {
         val narodmon = useNarodmon()
         root.findViewById<View>(R.id.layout_switch).visibility =
@@ -845,13 +946,17 @@ class DashboardActivity : AppCompatActivity() {
             if (narodmon) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.btn_pick_sensor).visibility =
             if (narodmon) View.VISIBLE else View.GONE
-        // Динамический цвет значения — для панелей, показывающих число/текст/график
+        // и кнопка добавления всех датчиков аккаунта разом
+        root.findViewById<View>(R.id.btn_add_all_sensors).visibility =
+            if (narodmon) View.VISIBLE else View.GONE
+        val progress = type == WidgetType.PROGRESS_V || type == WidgetType.PROGRESS_H
+        // Динамический цвет значения/полосы прогресса — число, текст, график, прогресс
         root.findViewById<View>(R.id.layout_color_range).visibility =
-            if (type == WidgetType.VALUE || type == WidgetType.TEXT || type == WidgetType.CHART)
+            if (type == WidgetType.VALUE || type == WidgetType.TEXT || type == WidgetType.CHART || progress)
                 View.VISIBLE else View.GONE
-        // Диапазон Мин/Макс нужен слайдеру и динамическому цвету значения
+        // Диапазон Мин/Макс нужен слайдеру, динамическому цвету и полосе прогресса
         root.findViewById<View>(R.id.layout_slider).visibility =
-            if (type == WidgetType.SLIDER || type == WidgetType.VALUE || type == WidgetType.TEXT)
+            if (type == WidgetType.SLIDER || type == WidgetType.VALUE || type == WidgetType.TEXT || progress)
                 View.VISIBLE else View.GONE
         // Единицы измерения имеют смысл только там, где значение показывают числом/текстом
         val unitVisible =

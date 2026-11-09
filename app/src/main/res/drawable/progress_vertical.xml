@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Вертикальная полоса прогресса: заполнение снизу вверх.
+     Цвет фона приглушённый, цвет полосы — тема (colorPrimary). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <corners android:radius="3dp" />
+            <solid android:color="#33888888" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip
+            android:clipOrientation="vertical"
+            android:gravity="bottom">
+            <shape android:shape="rectangle">
+                <corners android:radius="3dp" />
+                <solid android:color="?attr/colorPrimary" />
+            </shape>
+        </clip>
+    </item>
+</layer-list>

@@ -136,6 +136,19 @@ class WidgetAdapter(
         }
     }
 
+    /** Дописать историю из Народмона ПЕРЕД live-точками (без дублей по времени) */
+    fun prependHistory(panelId: Long, pts: List<ChartView.TimePoint>, cap: Int = 500) {
+        if (pts.isEmpty()) return
+        val merged = (pts + (chartHistory[panelId] ?: mutableListOf()))
+            .distinctBy { it.t }
+            .sortedBy { it.t }
+            .toMutableList()
+        while (merged.size > cap) merged.removeFirst()
+        chartHistory[panelId] = merged
+        val idx = items.indexOfFirst { it.id == panelId }
+        if (idx >= 0) notifyItemChanged(idx)
+    }
+
     /**
      * Снимок последних значений и историй графиков — для сохранения в
      * runtime-файл (мгновенный показ при следующем открытии дашборда).
@@ -219,6 +232,8 @@ class WidgetAdapter(
             WidgetType.TEXT -> R.layout.item_widget_text
             WidgetType.CHART -> R.layout.item_widget_chart
             WidgetType.MULTI_CHART -> R.layout.item_widget_multichart
+            WidgetType.PROGRESS_V -> R.layout.item_widget_progress_v
+            WidgetType.PROGRESS_H -> R.layout.item_widget_progress_h
         }
         return BaseHolder(inflater.inflate(layout, parent, false))
     }
@@ -239,6 +254,7 @@ class WidgetAdapter(
         private val ledDot: View? = view.findViewById(R.id.led_dot)
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
         private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
+        private val progressBar: android.widget.ProgressBar? = view.findViewById(R.id.progress_bar)
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
@@ -247,7 +263,7 @@ class WidgetAdapter(
             }
             // время последней передачи данных (если включено и данные приходили)
             if (tvTime != null) {
-                if (panel.showTime && panel.lastTime > 0) {
+                if (panel.showTime != false && panel.lastTime > 0) {
                     tvTime.visibility = View.VISIBLE
                     tvTime.text = formatTime(panel.lastTime)
                 } else {
@@ -270,6 +286,8 @@ class WidgetAdapter(
                 WidgetType.LED -> bindLed(panel)
                 WidgetType.CHART -> bindChart(panel)
                 WidgetType.MULTI_CHART -> bindMultiChart(panel)
+                WidgetType.PROGRESS_V -> bindProgress(bar = progressBar, panel = panel)
+                WidgetType.PROGRESS_H -> bindProgress(bar = progressBar, panel = panel)
             }
 
             // Долгое нажатие: в режиме перемещения — старт drag & drop,
@@ -338,6 +356,23 @@ class WidgetAdapter(
         tv.setTextColor(color ?: defaultValueColor!!)
     }
 
+        /** Полоса прогресса: доля значения в диапазоне Мин/Макс панели,
+         *  динамическая раскраска полосы по значению (если цвета заданы). */
+        private fun bindProgress(bar: android.widget.ProgressBar?, panel: Panel) {
+            if (bar == null) return
+            val min = panel.sliderMin
+            val max = if (panel.sliderMax > min) panel.sliderMax else min + 100
+            val v = panel.lastValue.toFloatOrNull()?.toDouble()
+            bar.max = 10000
+            bar.progress = if (v == null) 0
+            else (((v - min) / (max - min)) * 10000).toInt().coerceIn(0, 10000)
+            if (v != null) {
+                ColorRange.resolve(panel.colorMin, panel.colorMid, panel.colorMax, min, max, v)
+                    ?.let { c -> bar.progressTintList = android.content.res.ColorStateList.valueOf(c) }
+            }
+            tvValue?.text = withUnit(panel, panel.lastValue)
+        }
+
         private fun bindSwitch(panel: Panel) {
             val sw = switch ?: return
             val on = panel.lastValue.equals(panel.onPayload, ignoreCase = true) ||
@@ -404,7 +439,9 @@ class WidgetAdapter(
 
         private fun bindChart(panel: Panel) {
             val cv = chart ?: return
-            cv.maxPoints = panel.chartPoints
+            val history = chartHistory[panel.id]
+            // график Народмона: история за сутки длиннее лимита точек — не обрезать
+            cv.maxPoints = max(panel.chartPoints, history?.size ?: 0)
             cv.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
             cv.showScale = panel.chartShowScale
             // динамическая раскраска линии по значению (мин→середина→макс),
@@ -419,19 +456,30 @@ class WidgetAdapter(
                     }
                 else null
             cv.clear()
-            chartHistory[panel.id]?.forEach { cv.addTimePoint(it.t, it.v) }
-            if (chartHistory[panel.id].isNullOrEmpty()) {
+            history?.forEach { cv.addTimePoint(it.t, it.v) }
+            if (history.isNullOrEmpty()) {
                 panel.lastValue.toFloatOrNull()?.let { cv.addTimePoint(max(panel.lastTime, 0L).takeIf { it > 0 } ?: System.currentTimeMillis(), it) }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
         }
 
-        /** Мультиграфик: линии по темам серий + легенда «цвет — подпись» */
+        /** Мультиграфик: линии по темам серий + легенда «цвет — подпись».
+         *  Если у панели заданы цвета диапазона (мин/середина/макс) — все линии
+         *  красятся по значению вместо цветов серий. */
         private fun bindMultiChart(panel: Panel) {
             val cv = chart ?: return
             cv.maxPoints = panel.chartPoints
             cv.setMultiSeries(panel.series.map { parseColor(it.color, ChartView.DEFAULT_COLOR) })
             cv.showScale = panel.chartShowScale
+            cv.valueColorizer =
+                if (panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank())
+                    { v ->
+                        ColorRange.resolve(
+                            panel.colorMin, panel.colorMid, panel.colorMax,
+                            panel.sliderMin, panel.sliderMax, v.toDouble()
+                        ) ?: parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
+                    }
+                else null
             cv.clear()
             panel.series.indices.forEach { i ->
                 chartMultiHistory["${panel.id}:$i"]?.forEach { p -> cv.addMultiTimePoint(i, p.t, p.v) }

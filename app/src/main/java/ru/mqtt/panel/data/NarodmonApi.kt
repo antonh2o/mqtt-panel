@@ -39,10 +39,18 @@ object NarodmonApi {
         val id: Int = 0,
         val name: String = "",
         val value: Double? = null,
-        val time: Long = 0
+        val time: Long = 0,
+        val unit: String = ""
     )
 
+    /** Точка истории датчика: время в миллисекундах и значение */
+    data class NmPoint(val t: Long, val v: Float)
+
     data class SensorsResponse(val sensors: List<NmSensor> = emptyList())
+
+    /** Ответ sensorsHistory: точки в data[] (время в секундах) */
+    data class HistoryItem(val time: Long = 0, val value: Double? = null)
+    data class HistoryResponse(val data: List<HistoryItem> = emptyList())
 
     data class NmDevice(val sensors: List<NmSensor> = emptyList())
     data class DevicesResponse(val devices: List<NmDevice> = emptyList())
@@ -105,6 +113,22 @@ object NarodmonApi {
         }
 
     /**
+     * История датчика за сутки: sensorsHistory?id=…&period=day.
+     * Живой формат (06.11.2026): {"sensors":[метаданные c unit],"data":[{time (сек), value}]}.
+     * Возвращает точки с временем в миллисекундах.
+     */
+    suspend fun sensorsHistory(context: Context, apiKey: String, id: Int, period: String = "day"): List<NmPoint> =
+        withContext(Dispatchers.IO) {
+            parseHistory(request(context, apiKey, "sensorsHistory?id=$id&period=$period"))
+        }
+
+    /** Единица платформы в привычный суффикс: «°» → «°C», остальное — как есть */
+    fun prettyUnit(unit: String): String {
+        val u = unit.trim()
+        return if (u == "°") "°C" else u
+    }
+
+    /**
      * Значения всех своих датчиков одним запросом.
      *
      * sensorsValues на 06.11.2026 отвечает «410 Gone»/рвёт соединение при лимите,
@@ -144,6 +168,18 @@ object NarodmonApi {
                 ?.associate { it.id to it.value!! }
                 ?: emptyMap()
         }.getOrDefault(emptyMap())
+    }
+
+    /** Парсер sensorsHistory: data[] → точки (время сек → мс); мусор — пустой список */
+    fun parseHistory(json: String): List<NmPoint> {
+        errorEnvelope(json)?.let { throw envelopeException(it) }
+        return runCatching {
+            gson.fromJson(json, HistoryResponse::class.java)?.data
+                ?.filter { it.value != null && it.time > 0 }
+                ?.map { NmPoint(it.time * 1000L, it.value!!.toFloat()) }
+                ?.sortedBy { it.t }
+                ?: emptyList()
+        }.getOrDefault(emptyList())
     }
 
     /** {"error":..,"errno":..} — платформа присылает ошибки статусом 200 */

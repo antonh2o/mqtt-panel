@@ -11,7 +11,9 @@ enum class WidgetType(val label: String) {
     LED("Светодиод"),
     TEXT("Текст"),
     CHART("График"),
-    MULTI_CHART("Мультиграфик");
+    MULTI_CHART("Мультиграфик"),
+    PROGRESS_V("Прогресс верт."),
+    PROGRESS_H("Прогресс гориз.");
 
     companion object {
         fun fromLabel(label: String): WidgetType =
