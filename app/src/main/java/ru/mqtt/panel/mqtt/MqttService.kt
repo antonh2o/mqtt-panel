@@ -59,6 +59,8 @@ class MqttService : Service(), MqttCallbackExtended {
         const val BROADCAST_STATUS = "ru.mqtt.panel.STATUS"
         const val EXTRA_MESSAGE_TOPIC = "message_topic"
         const val EXTRA_MESSAGE_PAYLOAD = "message_payload"
+        /** время передачи сообщения (мс); Народмон передаёт время платформы */
+        const val EXTRA_MESSAGE_TIME = "message_time"
         const val EXTRA_STATUS = "status"
 
         const val ACTION_SCAN_START = "ru.mqtt.panel.SCAN_START"
@@ -349,6 +351,7 @@ class MqttService : Service(), MqttCallbackExtended {
         val intent = Intent(BROADCAST_MESSAGE).apply {
             putExtra(EXTRA_MESSAGE_TOPIC, topic ?: "")
             putExtra(EXTRA_MESSAGE_PAYLOAD, String(payloadBytes))
+            putExtra(EXTRA_MESSAGE_TIME, System.currentTimeMillis())
         }
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }

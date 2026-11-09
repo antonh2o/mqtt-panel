@@ -7,17 +7,20 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 
 /**
  * Линейный график (замена AndroidPlot из narmon-client).
- * Хранит последние N точек, рисует линию с заливкой и опциональную
- * вертикальную шкалу «min / max» — без неё график невозможно прочитать.
+ * Точки хранятся с временем передачи: линия рисуется по шкале времени,
+ * каждая точка измерения — кружок, снизу подписи времени.
  *
  * Два режима:
  *  - однолинейный (addValue/lineColor) — как раньше;
- *  - многолинейный (setMultiSeries/addMultiValue) — серии MULTI_CHART-панели,
+ *  - многолинейный (setMultiSeries/addMultiTimePoint) — серии MULTI_CHART-панели,
  *    масштаб общий по всем линиям, заливка не рисуется.
  */
 class ChartView @JvmOverloads constructor(
@@ -26,9 +29,12 @@ class ChartView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
+    /** Точка измерения: время передачи (мс) и значение */
+    data class TimePoint(val t: Long, val v: Float)
+
     /** Линия графика: свой цвет и свой буфер точек */
     private class Series(val color: Int) {
-        val points = ArrayDeque<Float>()
+        val points = ArrayDeque<TimePoint>()
     }
 
     private val series = mutableListOf<Series>()
@@ -71,6 +77,11 @@ class ChartView @JvmOverloads constructor(
         color = DEFAULT_COLOR
     }
 
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = DEFAULT_COLOR
+    }
+
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f
@@ -87,18 +98,19 @@ class ChartView @JvmOverloads constructor(
         color = withAlpha(DEFAULT_COLOR, TEXT_ALPHA)
     }
 
+    private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 8.5f * density
+        color = withAlpha(NEUTRAL_COLOR, 100)
+        textAlign = Paint.Align.CENTER
+    }
+
     private val path = Path()
     private val fillPath = Path()
 
     // --- однолинейный режим ---
 
     fun addValue(value: Float) {
-        if (value.isNaN() || value.isInfinite()) return
-        if (series.size != 1) {
-            series.clear()
-            series.add(Series(lineColor))
-        }
-        addPoint(series[0], value)
+        addTimePoint(System.currentTimeMillis(), value)
     }
 
     fun clear() {
@@ -123,13 +135,27 @@ class ChartView @JvmOverloads constructor(
     }
 
     fun addMultiValue(index: Int, value: Float) {
-        if (value.isNaN() || value.isInfinite()) return
-        if (index !in series.indices) return
-        addPoint(series[index], value)
+        addMultiTimePoint(index, System.currentTimeMillis(), value)
     }
 
-    private fun addPoint(s: Series, value: Float) {
-        s.points.addLast(value)
+    /** Точка с явным временем передачи (для истории из кэша и платформенных time) */
+    fun addTimePoint(t: Long, value: Float) {
+        if (value.isNaN() || value.isInfinite()) return
+        if (series.size != 1) {
+            series.clear()
+            series.add(Series(lineColor))
+        }
+        addPoint(series[0], TimePoint(t, value))
+    }
+
+    fun addMultiTimePoint(index: Int, t: Long, value: Float) {
+        if (value.isNaN() || value.isInfinite()) return
+        if (index !in series.indices) return
+        addPoint(series[index], TimePoint(t, value))
+    }
+
+    private fun addPoint(s: Series, point: TimePoint) {
+        s.points.addLast(point)
         trim(s)
         invalidate()
     }
@@ -141,8 +167,9 @@ class ChartView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val gutter = if (showScale) scalePaint.measureText("000000") + 4f * density else 0f
+        val timeLabelsH = 14f * density
         val w = width - gutter
-        val h = height.toFloat()
+        val h = height - timeLabelsH
         if (w <= 0f) return
 
         // горизонтальная сетка
@@ -154,58 +181,81 @@ class ChartView @JvmOverloads constructor(
         val drawable = series.filter { it.points.size >= 2 }
         if (drawable.isEmpty()) return
 
-        // общий масштаб по всем линиям — иначе линии с разными диапазонами не сравнить
+        // общий масштаб по значениям и по времени — линии не разъезжаются
         var minV = Float.MAX_VALUE
         var maxV = -Float.MAX_VALUE
-        drawable.forEach { s -> s.points.forEach { v ->
-            if (v < minV) minV = v
-            if (v > maxV) maxV = v
+        var tMin = Long.MAX_VALUE
+        var tMax = Long.MIN_VALUE
+        drawable.forEach { s -> s.points.forEach { p ->
+            if (p.v < minV) minV = p.v
+            if (p.v > maxV) maxV = p.v
+            if (p.t < tMin) tMin = p.t
+            if (p.t > tMax) tMax = p.t
         } }
         if (abs(maxV - minV) < 1e-6f) {
             minV -= 1f
             maxV += 1f
         }
+        if (tMax == tMin) tMax = tMin + 1
         val range = maxV - minV
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
 
+        fun x(t: Long) = gutter + (t - tMin).toFloat() / (tMax - tMin) * w
+        fun y(v: Float) = h - (v - minV) / range * usableH - 4f * density
+
         drawable.forEach { s ->
-            val step = w / (s.points.size - 1)
             path.reset()
-            var firstX = gutter
-            var lastX = gutter
-            s.points.forEachIndexed { i, v ->
-                val x = gutter + i * step
-                val y = h - (v - minV) / range * usableH - 4f * density
-                if (i == 0) {
-                    path.moveTo(x, y)
-                    firstX = x
-                } else {
-                    path.lineTo(x, y)
-                }
-                lastX = x
+            var firstX = 0f
+            var lastX = 0f
+            s.points.forEachIndexed { i, p ->
+                val px = x(p.t)
+                val py = y(p.v)
+                if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+                if (i == 0) firstX = px
+                lastX = px
             }
             linePaint.color = s.color
             // заливка только у одиночной линии: у нескольких она мутит график
             if (series.size == 1) {
                 fillPath.reset()
                 fillPath.moveTo(firstX, h)
-                s.points.forEachIndexed { i, v ->
-                    val x = gutter + i * step
-                    val y = h - (v - minV) / range * usableH - 4f * density
-                    fillPath.lineTo(x, y)
-                }
+                s.points.forEach { p -> fillPath.lineTo(x(p.t), y(p.v)) }
                 fillPath.lineTo(lastX, h)
                 fillPath.close()
                 fillPaint.color = withAlpha(s.color, FILL_ALPHA)
                 canvas.drawPath(fillPath, fillPaint)
             }
             canvas.drawPath(path, linePaint)
+            // точки измерений
+            dotPaint.color = s.color
+            s.points.forEach { p ->
+                canvas.drawCircle(x(p.t), y(p.v), 2.2f * density, dotPaint)
+            }
         }
 
         if (showScale) {
             canvas.drawText(format(maxV), 0f, topPad, scalePaint)
             canvas.drawText(format(minV), 0f, h - 2f * density, scalePaint)
+        }
+
+        // шкала времени: метки в начале, середине и конце диапазона
+        val span = tMax - tMin
+        val fmt = SimpleDateFormat(
+            if (span < 5 * 60_000L) "HH:mm:ss" else "HH:mm",
+            Locale.getDefault()
+        )
+        val mid = tMin + span / 2
+        val labelY = h + timeLabelsH - 3f * density
+        timePaint.textAlign = Paint.Align.LEFT
+        canvas.drawText(fmt.format(Date(tMin)), gutter, labelY, timePaint)
+        if (span > 30_000L) {
+            timePaint.textAlign = Paint.Align.CENTER
+            val midText = fmt.format(Date(mid))
+            val midX = gutter + w / 2
+            canvas.drawText(midText, midX, labelY, timePaint)
+            timePaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(fmt.format(Date(tMax)), gutter + w, labelY, timePaint)
         }
     }
 

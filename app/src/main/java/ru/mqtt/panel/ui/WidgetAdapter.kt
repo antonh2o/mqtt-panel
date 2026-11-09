@@ -12,6 +12,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
 import ru.mqtt.panel.R
+import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.WidgetType
 import java.text.SimpleDateFormat
@@ -42,11 +43,16 @@ class WidgetAdapter(
     /** Режим перемещения: долгое нажатие начинает перетаскивание, виджеты неактивны */
     var moveMode = false
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-    /** История значений для графиков (panelId -> список точек) */
-    private val chartHistory = HashMap<Long, MutableList<Float>>()
+    private val dateTimeFormat = SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault())
+    /** История значений для графиков: panelId → точки (время, значение) */
+    private val chartHistory = HashMap<Long, MutableList<ChartView.TimePoint>>()
 
-    /** История серий мультиграфиков («panelId:индексСерии» -> точки) */
-    private val chartMultiHistory = HashMap<String, MutableList<Float>>()
+    /** История серий мультиграфиков («panelId:индексСерии» → точки) */
+    private val chartMultiHistory = HashMap<String, MutableList<ChartView.TimePoint>>()
+
+    /** Время последнего обновления в строку: сегодня — только время, иначе с датой */
+    private fun formatTime(t: Long): String =
+        (if (Date().time - t < 24 * 3600_000L) timeFormat else dateTimeFormat).format(Date(t))
 
     fun submit(list: List<Panel>) {
         items.clear()
@@ -78,53 +84,110 @@ class WidgetAdapter(
 
     fun panelAt(position: Int): Panel? = items.getOrNull(position)
 
-    fun updateValue(panelId: Long, value: String) {
+    fun updateValue(panelId: Long, value: String, time: Long = System.currentTimeMillis()) {
         val index = items.indexOfFirst { it.id == panelId }
         if (index < 0) return
-        applyValue(index, value)
+        applyValue(index, value, time)
         notifyItemChanged(index)
     }
 
     /** Обновить все панели, подписанные на тему (с учётом MQTT-масок +/#) */
-    fun updateValueByTopic(topic: String, value: String) {
+    fun updateValueByTopic(topic: String, value: String, time: Long = System.currentTimeMillis()) {
         var changed = false
         items.forEachIndexed { index, panel ->
             if (panel.type == WidgetType.MULTI_CHART) {
                 // значение уходит в те серии, чья тема совпала
                 panel.series.forEachIndexed { i, s ->
                     if (s.topic.isNotBlank() && topicMatches(s.topic, topic)) {
-                        applyMultiValue(panel, i, value)
+                        applyMultiValue(panel, i, value, time)
                         changed = true
                     }
                 }
             } else if (panel.topicSubscribe.isNotBlank() && topicMatches(panel.topicSubscribe, topic)) {
-                applyValue(index, value)
+                applyValue(index, value, time)
                 changed = true
             }
         }
         if (changed) notifyDataSetChanged()
     }
 
-    private fun applyValue(index: Int, value: String) {
+    private fun applyValue(index: Int, value: String, time: Long = System.currentTimeMillis()) {
         val panel = items[index]
         panel.lastValue = value
+        if (time > panel.lastTime) panel.lastTime = time
         if (panel.type == WidgetType.CHART) {
             value.toFloatOrNull()?.let { v ->
                 val history = chartHistory.getOrPut(panel.id) { mutableListOf() }
-                history.add(v)
-                while (history.size > panel.chartPoints) history.removeAt(0)
+                history.add(ChartView.TimePoint(time, v))
+                while (history.size > panel.chartPoints) history.removeFirst()
             }
         }
     }
 
     /** Значение для серии мультиграфика (panel.lastValue — последнее из любых её тем) */
-    private fun applyMultiValue(panel: Panel, seriesIndex: Int, value: String) {
+    private fun applyMultiValue(panel: Panel, seriesIndex: Int, value: String, time: Long = System.currentTimeMillis()) {
         panel.lastValue = value
+        if (time > panel.lastTime) panel.lastTime = time
         value.toFloatOrNull()?.let { v ->
             val history = chartMultiHistory.getOrPut("${panel.id}:$seriesIndex") { mutableListOf() }
-            history.add(v)
+            history.add(ChartView.TimePoint(time, v))
             while (history.size > panel.chartPoints) history.removeAt(0)
         }
+    }
+
+    /**
+     * Снимок последних значений и историй графиков — для сохранения в
+     * runtime-файл (мгновенный показ при следующем открытии дашборда).
+     */
+    fun snapshotState(): Map<String, AppRepository.RuntimeValue> {
+        val result = HashMap<String, AppRepository.RuntimeValue>()
+        items.forEach { panel ->
+            result["${panel.id}"] = AppRepository.RuntimeValue(
+                last = panel.lastValue,
+                time = panel.lastTime,
+                history = chartHistory[panel.id]?.map { listOf(it.t.toDouble(), it.v.toDouble()) } ?: emptyList()
+            )
+            if (panel.type == WidgetType.MULTI_CHART) {
+                panel.series.indices.forEach { i ->
+                    chartMultiHistory["${panel.id}:$i"]?.let { pts ->
+                        result["${panel.id}:$i"] = AppRepository.RuntimeValue(
+                            last = pts.lastOrNull()?.v?.toString() ?: "",
+                            time = pts.lastOrNull()?.t ?: 0L,
+                            history = pts.map { listOf(it.t.toDouble(), it.v.toDouble()) }
+                        )
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /** Восстановление кэша: мгновенный показ последних значений и графиков */
+    fun applyCached(cached: Map<String, AppRepository.RuntimeValue>) {
+        if (cached.isEmpty()) return
+        items.forEach { panel ->
+            cached["${panel.id}"]?.let { rt ->
+                if (rt.last.isNotBlank()) panel.lastValue = rt.last
+                if (rt.time > panel.lastTime) panel.lastTime = rt.time
+                if (rt.history.isNotEmpty()) {
+                    chartHistory[panel.id] = rt.history
+                        .map { ChartView.TimePoint(it[0].toLong(), it[1].toFloat()) }
+                        .toMutableList()
+                }
+            }
+            if (panel.type == WidgetType.MULTI_CHART) {
+                panel.series.indices.forEach { i ->
+                    cached["${panel.id}:$i"]?.let { rt ->
+                        if (rt.history.isNotEmpty()) {
+                            chartMultiHistory["${panel.id}:$i"] = rt.history
+                                .map { ChartView.TimePoint(it[0].toLong(), it[1].toFloat()) }
+                                .toMutableList()
+                        }
+                    }
+                }
+            }
+        }
+        notifyDataSetChanged()
     }
 
     /** Проверка совпадения темы с учётом подстановочных масок + и # */
@@ -168,6 +231,7 @@ class WidgetAdapter(
         private val btnMenu: View? = view.findViewById(R.id.btn_menu)
         private val tvTopic: TextView? = view.findViewById(R.id.tv_topic)
         private val tvValue: TextView? = view.findViewById(R.id.tv_value)
+        private val tvTime: TextView? = view.findViewById(R.id.tv_time)
         private val switch: MaterialSwitch? = view.findViewById(R.id.switch_widget)
         private val slider: Slider? = view.findViewById(R.id.slider_widget)
         private val button: MaterialButton? = view.findViewById(R.id.btn_press)
@@ -179,6 +243,15 @@ class WidgetAdapter(
             tvName.text = panel.name
             tvTopic?.text = panel.topicSubscribe.ifBlank {
                 panel.topicPublish.ifBlank { itemView.context.getString(R.string.no_topic) }
+            }
+            // время последней передачи данных (если включено и данные приходили)
+            if (tvTime != null) {
+                if (panel.showTime && panel.lastTime > 0) {
+                    tvTime.visibility = View.VISIBLE
+                    tvTime.text = formatTime(panel.lastTime)
+                } else {
+                    tvTime.visibility = View.GONE
+                }
             }
 
             when (panel.type) {
@@ -310,9 +383,9 @@ class WidgetAdapter(
             cv.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
             cv.showScale = panel.chartShowScale
             cv.clear()
-            chartHistory[panel.id]?.forEach { cv.addValue(it) }
+            chartHistory[panel.id]?.forEach { cv.addTimePoint(it.t, it.v) }
             if (chartHistory[panel.id].isNullOrEmpty()) {
-                panel.lastValue.toFloatOrNull()?.let { cv.addValue(it) }
+                panel.lastValue.toFloatOrNull()?.let { cv.addTimePoint(max(panel.lastTime, 0L).takeIf { it > 0 } ?: System.currentTimeMillis(), it) }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
         }
@@ -325,7 +398,7 @@ class WidgetAdapter(
             cv.showScale = panel.chartShowScale
             cv.clear()
             panel.series.indices.forEach { i ->
-                chartMultiHistory["${panel.id}:$i"]?.forEach { cv.addMultiValue(i, it) }
+                chartMultiHistory["${panel.id}:$i"]?.forEach { p -> cv.addMultiTimePoint(i, p.t, p.v) }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
             // Тема карточки не одна — список тем виден в легенде

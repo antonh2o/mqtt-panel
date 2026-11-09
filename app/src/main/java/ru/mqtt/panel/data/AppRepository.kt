@@ -96,7 +96,9 @@ class AppRepository(private val context: Context) {
                 // Gson не вызывает конструктор: в конфигах до 0.2.9 поля series нет,
                 // и despite non-null тип оно физически null — чистим здесь
                 series = it.series ?: emptyList(),
-                source = it.source ?: "mqtt"
+                source = it.source ?: "mqtt",
+                showTime = it.showTime ?: true,
+                lastTime = it.lastTime ?: 0L
             )
         }
         return AppConfig(fixedConnections2, fixedPanels)
@@ -137,6 +139,7 @@ class AppRepository(private val context: Context) {
 
     suspend fun deleteConnection(id: Long) = withContext(Dispatchers.IO) {
         val config = load()
+        deleteRuntime(context, id)
         save(
             config.copy(
                 connections = config.connections.filterNot { it.id == id },
@@ -198,6 +201,53 @@ class AppRepository(private val context: Context) {
      */
     suspend fun exportConfig(): String = withContext(Dispatchers.IO) {
         gson.toJson(load())
+    }
+
+    // --- кэш последних значений и истории графиков (runtime-<id>.json) ---
+    // Отдельный файл, чтобы мгновенно показывать последние значения и графики
+    // при открытии дашборда, не дожидаясь broker/платформы. Пишется при уходе
+    // с экрана и раз в минуту; в config.json эти данные не попадают.
+
+    /** Последнее значение панели или серии мультиграфика */
+    data class RuntimeValue(
+        val last: String = "",
+        val time: Long = 0,
+        /** история точек графиков: [[время_мс, значение], ...] */
+        val history: List<List<Double>> = emptyList()
+    )
+
+    private fun runtimeFile(context: Context, connectionId: Long): java.io.File =
+        java.io.File(context.filesDir, "runtime-$connectionId.json")
+
+    suspend fun saveRuntimeValues(connectionId: Long, values: Map<String, RuntimeValue>) =
+        withContext(Dispatchers.IO) {
+            try {
+                val file = runtimeFile(context, connectionId)
+                val tmp = java.io.File(context.filesDir, "runtime-$connectionId.json.tmp")
+                tmp.writeText(gson.toJson(values))
+                if (file.exists() && !file.delete()) Log.w(TAG, "saveRuntime: не удалось удалить старый файл")
+                if (!tmp.renameTo(file)) file.writeText(gson.toJson(values))
+            } catch (e: Exception) {
+                Log.e(TAG, "saveRuntimeValues error", e)
+            }
+        }
+
+    suspend fun loadRuntimeValues(connectionId: Long): Map<String, RuntimeValue> =
+        withContext(Dispatchers.IO) {
+            val file = runtimeFile(context, connectionId)
+            if (!file.exists()) return@withContext emptyMap()
+            try {
+                val type = object : TypeToken<Map<String, RuntimeValue>>() {}.type
+                gson.fromJson<Map<String, RuntimeValue>>(file.readText(), type) ?: emptyMap()
+            } catch (e: Exception) {
+                Log.e(TAG, "loadRuntimeValues error", e)
+                emptyMap()
+            }
+        }
+
+    /** Удалить кэш вместе с подключением */
+    private fun deleteRuntime(context: Context, connectionId: Long) {
+        runCatching { runtimeFile(context, connectionId).delete() }
     }
 
     /**

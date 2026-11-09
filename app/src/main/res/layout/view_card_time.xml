@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Время последней передачи данных (заполняет WidgetAdapter, видно если
+     panel.showTime и данные приходили) -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tv_time"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="2dp"
+    android:gravity="end"
+    android:textSize="9sp"
+    android:textColor="?android:attr/textColorSecondary"
+    android:maxLines="1"
+    android:visibility="gone" />

@@ -146,4 +146,5 @@
     <string name="field_api_key">Narodmon API key (personal)</string>
     <string name="narodmon_need_key">Enter your Narodmon API key („My applications" on narodmon.ru)</string>
     <string name="field_sensor">Sensor (ID)</string>
+    <string name="field_show_time">Show update time</string>
 </resources>

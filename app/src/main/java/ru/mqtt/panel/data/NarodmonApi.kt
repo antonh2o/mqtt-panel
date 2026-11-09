@@ -109,13 +109,11 @@ object NarodmonApi {
      *
      * sensorsValues на 06.11.2026 отвечает «410 Gone»/рвёт соединение при лимите,
      * поэтому поллинг идёт через sensorsNearby?my=1 — в его ответе уже есть
-     * текущие value каждого датчика. Возвращает id → значение (без null).
+     * текущие value и time каждого датчика. Возвращает датчики со значением.
      */
-    suspend fun fetchOwnValues(context: Context, apiKey: String): Map<Int, Double> =
+    suspend fun fetchOwnSensors(context: Context, apiKey: String): List<NmSensor> =
         withContext(Dispatchers.IO) {
-            parseList(request(context, apiKey, "sensorsNearby?my=1"))
-                .filter { it.value != null }
-                .associate { it.id to it.value!! }
+            parseList(request(context, apiKey, "sensorsNearby?my=1")).filter { it.value != null }
         }
 
     // --- парсинг вынесен наружу для юнит-тестов (без Android-зависимостей) ---

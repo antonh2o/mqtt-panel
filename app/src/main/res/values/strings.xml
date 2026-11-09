@@ -146,4 +146,5 @@
     <string name="field_api_key">API-ключ narodmon (личный)</string>
     <string name="narodmon_need_key">Укажите API-ключ narodmon («Мои приложения» на narodmon.ru)</string>
     <string name="field_sensor">Датчик (ID)</string>
+    <string name="field_show_time">Показывать время обновления</string>
 </resources>

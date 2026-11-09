@@ -52,6 +52,11 @@ data class Panel(
     // topicSubscribe хранит ID датчика строкой — маршрутизация значений и графики
     // переиспользуются без изменений
     var source: String = "mqtt",
+    // показывать на карточке время последнего обновления значения
+    var showTime: Boolean = true,
+    // время последнего принятого значения (runtime: в конфиг не пишется,
+    // хранится в runtime-<id>.json вместе с историей графиков)
+    var lastTime: Long = 0,
     // последнее значение
     var lastValue: String = ""
 ) : Serializable

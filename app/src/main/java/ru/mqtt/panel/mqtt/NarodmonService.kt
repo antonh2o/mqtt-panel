@@ -141,18 +141,21 @@ class NarodmonService : Service() {
             try {
                 // один запрос на все свои датчики: sensorsNearby?my=1
                 // (sensorsValues на 06.11.2026 отдаёт 410 Gone — см. NarodmonApi)
-                val values = NarodmonApi.fetchOwnValues(applicationContext, conn.apiKey)
+                val sensors = NarodmonApi.fetchOwnSensors(applicationContext, conn.apiKey)
                 connectedAt = System.currentTimeMillis()
                 connectionState = ConnectionState.CONNECTED
                 backoff = 1
                 broadcastStatus(ConnectionState.CONNECTED)
                 val lm = LocalBroadcastManager.getInstance(this@NarodmonService)
-                values.forEach { (id, value) ->
-                    val payload = NarodmonApi.fmt(value)
+                sensors.forEach { s ->
+                    val payload = NarodmonApi.fmt(s.value!!)
+                    // время платформы (сек) идёт в график: точки встают на шкалу времени
+                    val timeMs = if (s.time > 0) s.time * 1000L else System.currentTimeMillis()
                     // Реестр тем сканера не пишем: датчики выбираются списком, не сканом
                     lm.sendBroadcast(Intent(MqttService.BROADCAST_MESSAGE).apply {
-                        putExtra(MqttService.EXTRA_MESSAGE_TOPIC, id.toString())
+                        putExtra(MqttService.EXTRA_MESSAGE_TOPIC, s.id.toString())
                         putExtra(MqttService.EXTRA_MESSAGE_PAYLOAD, payload)
+                        putExtra(MqttService.EXTRA_MESSAGE_TIME, timeMs)
                     })
                 }
             } catch (e: NarodmonApi.RateLimitException) {

@@ -64,6 +64,8 @@
             android:maxLines="1"
             android:ellipsize="middle" />
 
+    <include layout="@layout/view_card_time" />
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -184,8 +185,10 @@ class DashboardActivity : AppCompatActivity() {
                 NarodmonService.activeConnectionId != connectionId) return
             val topic = intent?.getStringExtra(MqttService.EXTRA_MESSAGE_TOPIC) ?: return
             val payload = intent.getStringExtra(MqttService.EXTRA_MESSAGE_PAYLOAD) ?: return
+            // у Народмона — время платформы, у MQTT — момент приёма
+            val time = intent.getLongExtra(MqttService.EXTRA_MESSAGE_TIME, System.currentTimeMillis())
             receivedCount++
-            widgetAdapter.updateValueByTopic(topic, payload)
+            widgetAdapter.updateValueByTopic(topic, payload, time)
             renderStatus(connected = svcState() == ConnectionState.CONNECTED)
         }
     }
@@ -453,6 +456,9 @@ class DashboardActivity : AppCompatActivity() {
             // не показываем протухшие значения, retained-сообщения придут сразу после подписки
             receivedCount = 0
             widgetAdapter.submitFresh(panels)
+            // Мгновенный показ последних значений и графиков из runtime-кэша
+            val cached = repository.loadRuntimeValues(connectionId)
+            widgetAdapter.applyCached(cached)
             binding.tvEmpty.visibility = if (panels.isEmpty()) View.VISIBLE else View.GONE
 
             // У narodmon-подключения сканер топиков бессмыслен — прячем кнопку
@@ -518,6 +524,9 @@ class DashboardActivity : AppCompatActivity() {
         setupChartOptions(root, panel.chartColor, panel.chartShowScale)
         setupMultiChart(root, panel)
         setupSensorPicker(root)
+        setupUnitPresets(root)
+        root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
+            .isChecked = panel.showTime
         showTypeSections(root, panel.type)
 
         MaterialAlertDialogBuilder(this)
@@ -554,6 +563,9 @@ class DashboardActivity : AppCompatActivity() {
         setupSpanPicker(root, Span.THIRD)
         setupChartOptions(root, DEFAULT_CHART_COLOR, true)
         setupSensorPicker(root)
+        setupUnitPresets(root)
+        root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
+            .isChecked = true
         showTypeSections(root, WidgetType.VALUE)
 
         MaterialAlertDialogBuilder(this)
@@ -676,6 +688,44 @@ class DashboardActivity : AppCompatActivity() {
         etSpan.tag as? Span ?: Span.fromSpanCount(2)
 
     /** Показываем только те параметры, что относятся к выбранному типу */
+    /**
+     * Быстрый выбор единиц с иконками: тап по чипсу подставляет суффикс
+     * в поле «Единицы измерения». Термометр/влажность/заряд/напряжение/
+     * ватт/ток/давление.
+     */
+    private fun setupUnitPresets(root: View) {
+        val presets = listOf(
+            "🌡 °C",
+            "💧 %",
+            "🔋 %",
+            "⚡ V",
+            "⚡ W",
+            "⚡ A",
+            "🌀 mmHg"
+        )
+        val row = root.findViewById<LinearLayout>(R.id.unit_presets_row)
+        val etUnit = root.findViewById<EditText>(R.id.et_unit)
+        val d = resources.displayMetrics.density
+        presets.forEach { preset ->
+            val chip = TextView(this).apply {
+                text = preset
+                textSize = 13f
+                setPadding((12 * d).toInt(), (5 * d).toInt(), (12 * d).toInt(), (5 * d).toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                    cornerRadius = 16 * d
+                    setColor(0x22888888)
+                }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = (6 * d).toInt() }
+            }
+            chip.setOnClickListener { etUnit.setText(preset) }
+            row.addView(chip)
+        }
+    }
+
     private fun showTypeSections(root: View, type: WidgetType) {
         val narodmon = useNarodmon()
         root.findViewById<View>(R.id.layout_switch).visibility =
@@ -702,9 +752,12 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<View>(R.id.btn_pick_sensor).visibility =
             if (narodmon) View.VISIBLE else View.GONE
         // Единицы измерения имеют смысл только там, где значение показывают числом/текстом
-        root.findViewById<View>(R.id.layout_unit).visibility =
+        val unitVisible =
             if (type == WidgetType.SWITCH || type == WidgetType.BUTTON || type == WidgetType.LED)
                 View.GONE else View.VISIBLE
+        root.findViewById<View>(R.id.layout_unit).visibility = unitVisible
+        root.findViewById<View>(R.id.unit_presets_scroll).visibility = unitVisible
+        root.findViewById<View>(R.id.cb_show_time).visibility = View.VISIBLE
         // Переключились на мультиграфик при пустом списке — сразу одна пустая серия
         root.findViewById<View>(R.id.btn_add_series).setOnClickListener { addSeriesRow(root, null) }
         if (type == WidgetType.MULTI_CHART) {
@@ -918,6 +971,7 @@ class DashboardActivity : AppCompatActivity() {
             chartColor = colors.tag as? String ?: DEFAULT_CHART_COLOR,
             chartShowScale = root.findViewById<android.widget.CheckBox>(R.id.cb_show_scale).isChecked,
             span = currentSpan(root.findViewById(R.id.et_span)).spanCount,
+            showTime = root.findViewById<android.widget.CheckBox>(R.id.cb_show_time).isChecked,
             source = if (narodmon) "narodmon" else "mqtt"
         )
         return if (panel.type == WidgetType.MULTI_CHART) {
@@ -980,6 +1034,10 @@ class DashboardActivity : AppCompatActivity() {
         lm.unregisterReceiver(statusReceiver)
         lm.unregisterReceiver(messageReceiver)
         uptimeTicker.removeMessages(0)
+        // сохранить последние значения и истории графиков для мгновенного показа
+        lifecycleScope.launch {
+            repository.saveRuntimeValues(connectionId, widgetAdapter.snapshotState())
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
