@@ -38,6 +38,8 @@
 
         </FrameLayout>
 
+        <!-- autofit: значение с длинным суффиксом («239.4 ⚡ V») сжимает шрифт
+             под ширину карточки вместо многоточия -->
         <TextView
             android:id="@+id/tv_value"
             android:layout_width="match_parent"
@@ -48,6 +50,9 @@
             android:maxLines="1"
             android:ellipsize="end"
             android:textStyle="bold"
+            app:autoSizeTextType="uniform"
+            app:autoSizeMinTextSize="10sp"
+            app:autoSizeMaxTextSize="20sp"
             android:text="—" />
 
         <TextView

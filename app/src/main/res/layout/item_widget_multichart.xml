@@ -46,7 +46,10 @@
             android:gravity="center"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:text="—" />
+            android:text="—" 
+            app:autoSizeTextType="uniform"
+            app:autoSizeMinTextSize="9sp"
+            app:autoSizeMaxTextSize="12sp"/>
 
         <ru.mqtt.panel.ui.ChartView
             android:id="@+id/chart_view"

@@ -44,7 +44,10 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:textSize="14sp"
-            android:fontFamily="monospace" />
+            android:fontFamily="monospace" 
+            app:autoSizeTextType="uniform"
+            app:autoSizeMinTextSize="9sp"
+            app:autoSizeMaxTextSize="14sp"/>
 
         <TextView
             android:id="@+id/tv_topic"
