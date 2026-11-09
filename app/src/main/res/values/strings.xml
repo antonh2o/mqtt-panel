@@ -147,4 +147,10 @@
     <string name="narodmon_need_key">Укажите API-ключ narodmon («Мои приложения» на narodmon.ru)</string>
     <string name="field_sensor">Датчик (ID)</string>
     <string name="field_show_time">Показывать время обновления</string>
+    <string name="color_range_title">Цвет по значению</string>
+    <string name="color_range_min">мин</string>
+    <string name="color_range_mid">середина</string>
+    <string name="color_range_max">макс</string>
+    <string name="color_range_clear">Сбросить цвета</string>
+    <string name="color_range_hint">Диапазон — значения Мин/Макс панели. Промежуточные значения — плавный переход цветов. Тап по кружку — выбор цвета, «Сбросить» — выключить</string>
 </resources>

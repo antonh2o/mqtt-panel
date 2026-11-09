@@ -147,4 +147,10 @@
     <string name="narodmon_need_key">Enter your Narodmon API key („My applications" on narodmon.ru)</string>
     <string name="field_sensor">Sensor (ID)</string>
     <string name="field_show_time">Show update time</string>
+    <string name="color_range_title">Value color</string>
+    <string name="color_range_min">min</string>
+    <string name="color_range_mid">mid</string>
+    <string name="color_range_max">max</string>
+    <string name="color_range_clear">Clear colors</string>
+    <string name="color_range_hint">Range = the panel Min/Max values. In-between values get a smooth color transition. Tap a dot to pick a color, „Clear" to disable</string>
 </resources>

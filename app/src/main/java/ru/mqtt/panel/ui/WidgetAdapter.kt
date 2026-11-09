@@ -13,6 +13,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
+import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.WidgetType
 import java.text.SimpleDateFormat
@@ -255,8 +256,14 @@ class WidgetAdapter(
             }
 
             when (panel.type) {
-                WidgetType.VALUE -> tvValue?.text = withUnit(panel, panel.lastValue)
-                WidgetType.TEXT -> tvValue?.text = withUnit(panel, panel.lastValue)
+                WidgetType.VALUE -> {
+                    tvValue?.text = withUnit(panel, panel.lastValue)
+                    applyDynamicColor(tvValue, panel)
+                }
+                WidgetType.TEXT -> {
+                    tvValue?.text = withUnit(panel, panel.lastValue)
+                    applyDynamicColor(tvValue, panel)
+                }
                 WidgetType.SWITCH -> bindSwitch(panel)
                 WidgetType.BUTTON -> bindButton(panel)
                 WidgetType.SLIDER -> bindSlider(panel)
@@ -303,15 +310,33 @@ class WidgetAdapter(
                 .show()
         }
 
-        /** Значение с единицей измерения: «24.2 °C», «53%» (как в narodmon) */
-        private fun withUnit(panel: Panel, value: String): String {
-            if (value.isBlank()) return "—"
-            val unit = panel.unitSuffix
-            if (unit.isBlank()) return value
-            // °C и % пишутся впритык к числу, остальные единицы — через пробел
-            val sep = if (unit.startsWith("°") || unit.startsWith("%")) "" else " "
-            return value + sep + unit
-        }
+    /** Значение с единицей измерения: «24.2 °C», «53%» (как в narodmon) */
+    private fun withUnit(panel: Panel, value: String): String {
+        if (value.isBlank()) return "—"
+        val unit = panel.unitSuffix
+        if (unit.isBlank()) return value
+        // °C и % пишутся впритык к числу, остальные единицы — через пробел
+        val sep = if (unit.startsWith("°") || unit.startsWith("%")) "" else " "
+        return value + sep + unit
+    }
+
+    private var defaultValueColor: Int? = null
+
+    /**
+     * Динамический цвет значения по диапазону Мин/Макс (ColorRange):
+     * минимум → цвет минимума, середина → средний, максимум → максимальный,
+     * промежуточные значения — плавный переход. Цвета не заданы — обычный.
+     */
+    private fun applyDynamicColor(tv: TextView?, panel: Panel) {
+        if (tv == null) return
+        if (defaultValueColor == null) defaultValueColor = tv.currentTextColor
+        val v = panel.lastValue.toFloatOrNull()?.toDouble()
+        val color = if (v != null) ColorRange.resolve(
+            panel.colorMin, panel.colorMid, panel.colorMax,
+            panel.sliderMin, panel.sliderMax, v
+        ) else null
+        tv.setTextColor(color ?: defaultValueColor!!)
+    }
 
         private fun bindSwitch(panel: Panel) {
             val sw = switch ?: return

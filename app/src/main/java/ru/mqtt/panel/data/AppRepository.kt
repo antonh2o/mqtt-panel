@@ -98,7 +98,10 @@ class AppRepository(private val context: Context) {
                 series = it.series ?: emptyList(),
                 source = it.source ?: "mqtt",
                 showTime = it.showTime ?: true,
-                lastTime = it.lastTime ?: 0L
+                lastTime = it.lastTime ?: 0L,
+                colorMin = it.colorMin ?: "",
+                colorMid = it.colorMid ?: "",
+                colorMax = it.colorMax ?: ""
             )
         }
         return AppConfig(fixedConnections2, fixedPanels)

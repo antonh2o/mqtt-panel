@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.ChartSeries
+import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.MqttConnection
 import ru.mqtt.panel.data.NarodmonApi
 import ru.mqtt.panel.data.Panel
@@ -525,6 +526,7 @@ class DashboardActivity : AppCompatActivity() {
         setupMultiChart(root, panel)
         setupSensorPicker(root)
         setupUnitPresets(root)
+        setupColorRange(root, panel)
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
             .isChecked = panel.showTime
         showTypeSections(root, panel.type)
@@ -564,6 +566,12 @@ class DashboardActivity : AppCompatActivity() {
         setupChartOptions(root, DEFAULT_CHART_COLOR, true)
         setupSensorPicker(root)
         setupUnitPresets(root)
+        // у новой панели динамический цвет включён сразу (как в IoT MQTT Panel):
+        // синий минимум → зелёная середина → красный максимум
+        setupColorRange(root, Panel(
+            connectionId = connectionId,
+            colorMin = "#2196F3", colorMid = "#4CAF50", colorMax = "#F44336"
+        ))
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
             .isChecked = true
         showTypeSections(root, WidgetType.VALUE)
@@ -726,6 +734,90 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Динамический цвет значения: три кружка (мин/середина/макс).
+     * Тап — выбор цвета из палитры или hex; «Сбросить цвета» выключает.
+     * Пустые цвета = динамический цвет выключен (рисуется серым).
+     */
+    private fun setupColorRange(root: View, panel: Panel) {
+        val current = listOf(panel.colorMin, panel.colorMid, panel.colorMax)
+        val placeholders = listOf("#2196F3", "#4CAF50", "#F44336")
+        val ids = listOf(R.id.dot_color_min, R.id.dot_color_mid, R.id.dot_color_max)
+        ids.forEachIndexed { i, id ->
+            val dot = root.findViewById<View>(id)
+            paintColorDot(dot, current[i], placeholders[i])
+            dot.setOnClickListener {
+                pickColorDialog(dot.tag as? String ?: placeholders[i]) { hex ->
+                    paintColorDot(dot, hex, placeholders[i])
+                }
+            }
+        }
+        root.findViewById<View>(R.id.btn_color_clear).setOnClickListener {
+            ids.forEachIndexed { i, id -> paintColorDot(root.findViewById(id), "", placeholders[i]) }
+        }
+    }
+
+    private fun paintColorDot(dot: View, hex: String, placeholder: String) {
+        val effective = hex.ifBlank { placeholder }
+        dot.tag = hex
+        dot.background = makeColorDot(if (hex.isBlank()) "#9E9E9E" else effective)
+    }
+
+    /** Выбор цвета: палитра 12 цветов + ручной ввод hex; пустой результат — выключить */
+    private fun pickColorDialog(current: String, onPicked: (String) -> Unit) {
+        val d = resources.displayMetrics.density
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * d).toInt(), (8 * d).toInt(), (24 * d).toInt(), 0)
+        }
+        val etHex = EditText(this).apply {
+            hint = "#RRGGBB"
+            setText(current)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            textSize = 14f
+        }
+        container.addView(etHex)
+        val paletteRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        CHART_PALETTE.forEach { hex ->
+            val size = (32 * d).toInt()
+            val gap = (4 * d).toInt()
+            val dot = View(this)
+            dot.layoutParams = LinearLayout.LayoutParams(size, size).apply { setMargins(gap, gap, gap, gap) }
+            dot.background = makeColorDot(hex)
+            dot.contentDescription = hex
+            dot.setOnClickListener { etHex.setText(hex) }
+            paletteRow.addView(dot)
+        }
+        container.addView(paletteRow)
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.color_range_title)
+            .setView(container)
+            .setPositiveButton(R.string.save, null)
+            .setNeutralButton(R.string.color_range_clear) { _, _ -> onPicked("") }
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val hex = etHex.text.toString().trim()
+                val parsed = if (hex.isBlank()) "" else ColorRange.parse(hex)?.let {
+                    String.format("#%06X", it and 0xFFFFFF)
+                }
+                if (hex.isBlank() || parsed != null) {
+                    onPicked(parsed ?: "")
+                    dialog.dismiss()
+                } else {
+                    etHex.error = getString(R.string.color_range_title)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun dotTag(root: View, id: Int): String =
+        root.findViewById<View>(id).tag as? String ?: ""
+
     private fun showTypeSections(root: View, type: WidgetType) {
         val narodmon = useNarodmon()
         root.findViewById<View>(R.id.layout_switch).visibility =
@@ -751,6 +843,13 @@ class DashboardActivity : AppCompatActivity() {
             if (narodmon) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.btn_pick_sensor).visibility =
             if (narodmon) View.VISIBLE else View.GONE
+        // Динамический цвет значения — для панелей, показывающих число/текст
+        root.findViewById<View>(R.id.layout_color_range).visibility =
+            if (type == WidgetType.VALUE || type == WidgetType.TEXT) View.VISIBLE else View.GONE
+        // Диапазон Мин/Макс нужен слайдеру и динамическому цвету значения
+        root.findViewById<View>(R.id.layout_slider).visibility =
+            if (type == WidgetType.SLIDER || type == WidgetType.VALUE || type == WidgetType.TEXT)
+                View.VISIBLE else View.GONE
         // Единицы измерения имеют смысл только там, где значение показывают числом/текстом
         val unitVisible =
             if (type == WidgetType.SWITCH || type == WidgetType.BUTTON || type == WidgetType.LED)
@@ -972,6 +1071,9 @@ class DashboardActivity : AppCompatActivity() {
             chartShowScale = root.findViewById<android.widget.CheckBox>(R.id.cb_show_scale).isChecked,
             span = currentSpan(root.findViewById(R.id.et_span)).spanCount,
             showTime = root.findViewById<android.widget.CheckBox>(R.id.cb_show_time).isChecked,
+            colorMin = dotTag(root, R.id.dot_color_min),
+            colorMid = dotTag(root, R.id.dot_color_mid),
+            colorMax = dotTag(root, R.id.dot_color_max),
             source = if (narodmon) "narodmon" else "mqtt"
         )
         return if (panel.type == WidgetType.MULTI_CHART) {
