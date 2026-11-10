@@ -7,9 +7,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -275,21 +272,15 @@ class ChartView @JvmOverloads constructor(
 
         // шкала времени: метки в начале, середине и конце диапазона
         val span = tMax - tMin
-        val fmt = SimpleDateFormat(
-            if (span < 5 * 60_000L) "HH:mm:ss" else "HH:mm",
-            Locale.getDefault()
-        )
         val mid = tMin + span / 2
         val labelY = h + timeLabelsH - 3f * density
         timePaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(fmt.format(Date(tMin)), gutter, labelY, timePaint)
+        canvas.drawText(ChartTimeFormat.label(span, tMin), gutter, labelY, timePaint)
         if (span > 30_000L) {
             timePaint.textAlign = Paint.Align.CENTER
-            val midText = fmt.format(Date(mid))
-            val midX = gutter + w / 2
-            canvas.drawText(midText, midX, labelY, timePaint)
+            canvas.drawText(ChartTimeFormat.label(span, mid), gutter + w / 2, labelY, timePaint)
             timePaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(fmt.format(Date(tMax)), gutter + w, labelY, timePaint)
+            canvas.drawText(ChartTimeFormat.label(span, tMax), gutter + w, labelY, timePaint)
         }
     }
 

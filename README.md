@@ -2,13 +2,13 @@
 
 Android-дашборд для [MQTT](https://mqtt.org/)-брокера и платформы [narodmon.ru](https://narodmon.ru): карточки-виджеты показывают значения топиков и датчиков в реальном времени и отправляют команды обратно брокеру. Функциональный аналог популярного [IoT MQTT Panel](https://play.google.com/store/apps/details?id=snr.ptt.iot.mqtt.panel) с импортом его конфигураций — переезд с сохранением всех дашбордов занимает пару минут.
 
-**Текущая версия:** 0.2.49 · minSdk 24 (Android 7.0) · Kotlin · Eclipse Paho 1.2.5
+**Текущая версия:** 0.2.50 · minSdk 24 (Android 7.0) · Kotlin · Eclipse Paho 1.2.5
 
-| Дашборд: мультиграфик + шкала времени · динамический цвет · тёмная тема |
+| Дашборд с живыми данными · мультиграфик с легендой · динамический цвет · тёмная тема |
 |---|
-| <img src="screenshots/dashboard.png" width="49%"> <img src="screenshots/narodmon-dash.png" width="49%"> |
-| <img src="screenshots/theme-dark.png" width="49%"> <img src="screenshots/chart-color-editor.png" width="49%"> |
-| <img src="screenshots/series-editor.png" width="49%"> |
+| <img src="screenshots/mqtt-dashboard.png" width="49%"> <img src="screenshots/narodmon-charts.png" width="49%"> |
+| <img src="screenshots/multigraph.png" width="49%"> <img src="screenshots/dark-theme.png" width="49%"> |
+| <img src="screenshots/color-range-editor.png" width="49%"> <img src="screenshots/multigraph-editor.png" width="49%"> |
 
 ## Возможности
 
@@ -50,7 +50,7 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 
 ## Установка
 
-Готовый APK лежит в репозитории: [apk/mqtt-panel-0.2.49.apk](apk/mqtt-panel-0.2.49.apk) — подписан release-ключом разработчика, ставится «установкой из файла». Внутри приложения: меню ⋮ → «Проверить обновления» скачивает новую версию и сразу открывает установщик.
+Готовый APK лежит в репозитории: [apk/mqtt-panel-0.2.50.apk](apk/mqtt-panel-0.2.50.apk) — подписан release-ключом разработчика, ставится «установкой из файла». Внутри приложения: меню ⋮ → «Проверить обновления» скачивает новую версию и сразу открывает установщик.
 
 ## Безопасность и ложные срабатывания антивирусов
 
@@ -63,10 +63,10 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 Как убедиться, что файл не подменён — контрольная сумма SHA-256 текущего APK:
 
 ```
-17aa475ec86825162db05f7adf6f4c91c14b592698b2a91da4df3567d037eb31  mqtt-panel-0.2.49.apk
+ffabad9a8f1b5d2794827bee1536cfc0f49cb004f65eab7c89f5fc689f49c8e6  mqtt-panel-0.2.50.apk
 ```
 
-Сравните с выводом `sha256sum mqtt-panel-0.2.49.apk` после скачивания. Сумма каждой новой версии публикуется здесь.
+Сравните с выводом `sha256sum mqtt-panel-0.2.50.apk` после скачивания. Сумма каждой новой версии публикуется здесь.
 
 **Если антивирус оболочки (Vivo/MIUI) всё же блокирует установку**: в окне предупреждения выберите «Установить всё равно» / «Игнорировать риск и установить» (пункт может прятаться за «Подробнее»); либо временно отключите сканер в настройках безопасности оболочки на время установки. Код приложения открыт в этом репозитории, вредоносных действий нет: сеть используется только для MQTT-брокера, api.narodmon.ru, api.github.com и OAuth Яндекс Диска.
 
