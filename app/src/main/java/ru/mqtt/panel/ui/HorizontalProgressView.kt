@@ -54,8 +54,11 @@ class HorizontalProgressView @JvmOverloads constructor(
         if (w <= 0f || h <= 0f) return
         canvas.drawRoundRect(inset, inset, w - inset, h - inset, corner, corner, trackPaint)
         val fillW = (w - inset * 2) * max(fraction, 0f)
-        if (fillW > corner) {
-            canvas.drawRoundRect(inset, inset, inset + fillW, h - inset, corner, corner, fillPaint)
+        if (fillW > 0f) {
+            // даже при доле ~0% рисуем «бубышку» шириной с высоту полосы —
+            // иначе маленькие значения выглядят как пустая полоса
+            val drawn = max(fillW, h - inset * 2)
+            canvas.drawRoundRect(inset, inset, inset + drawn, h - inset, corner, corner, fillPaint)
         }
     }
 }
