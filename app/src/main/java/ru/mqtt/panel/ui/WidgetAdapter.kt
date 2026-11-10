@@ -264,8 +264,8 @@ class WidgetAdapter(
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
         private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
         private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
-        private val progressBar: android.widget.ProgressBar? = view.findViewById(R.id.progress_bar)
         private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
+        private val horizontalProgress: HorizontalProgressView? = view.findViewById(R.id.progress_horizontal)
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
@@ -297,8 +297,8 @@ class WidgetAdapter(
                 WidgetType.LED -> bindLed(panel)
                 WidgetType.CHART -> bindChart(panel)
                 WidgetType.MULTI_CHART -> bindMultiChart(panel)
-                WidgetType.PROGRESS_V -> bindProgress(null, verticalProgress, panel)
-                WidgetType.PROGRESS_H -> bindProgress(progressBar, null, panel)
+                WidgetType.PROGRESS_V -> bindProgress(null, verticalProgress, null, panel)
+                WidgetType.PROGRESS_H -> bindProgress(null, null, horizontalProgress, panel)
             }
 
             // Долгое нажатие: в режиме перемещения — старт drag & drop,
@@ -372,9 +372,10 @@ class WidgetAdapter(
         private fun bindProgress(
             bar: android.widget.ProgressBar?,
             vertical: VerticalProgressView?,
+            horizontal: HorizontalProgressView?,
             panel: Panel
         ) {
-            if (bar == null && vertical == null) return
+            if (bar == null && vertical == null && horizontal == null) return
             val min = panel.sliderMin
             val max = if (panel.sliderMax > min) panel.sliderMax else min + 100
             val v = panel.lastValue.toFloatOrNull()?.toDouble()
@@ -387,9 +388,11 @@ class WidgetAdapter(
                     ?.let { c ->
                         bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
                         vertical?.fillColor = c
+                        horizontal?.fillColor = c
                     }
             }
             vertical?.fraction = fraction
+            horizontal?.fraction = fraction
             tvValue?.text = withUnit(panel, panel.lastValue)
         }
 

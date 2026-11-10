@@ -38,13 +38,11 @@
 
         </FrameLayout>
 
-        <ProgressBar
-            android:id="@+id/progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
+        <ru.mqtt.panel.ui.HorizontalProgressView
+            android:id="@+id/progress_horizontal"
             android:layout_width="match_parent"
-            android:layout_height="22dp"
-            android:layout_marginTop="8dp"
-            android:max="10000" />
+            android:layout_height="26dp"
+            android:layout_marginTop="8dp" />
 
         <TextView
             android:id="@+id/tv_value"
