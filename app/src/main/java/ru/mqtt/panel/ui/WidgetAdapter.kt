@@ -527,9 +527,10 @@ class WidgetAdapter(
                 return
             }
             row.visibility = View.VISIBLE
+            val periods = listOf("day", "week", "month", "year")
             if (row.childCount == 0) {
                 val d = row.context.resources.displayMetrics.density
-                listOf("1d" to "day", "1w" to "week", "1m" to "month", "1y" to "year").forEach { (label, period) ->
+                listOf("1d", "1w", "1m", "1y").forEach { label ->
                     val chip = android.widget.TextView(row.context).apply {
                         text = label
                         textSize = 11f
@@ -542,17 +543,20 @@ class WidgetAdapter(
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                         ).apply { marginEnd = (4 * d).toInt() }
-                        setOnClickListener {
-                            onChartPeriodSelected?.invoke(panel, period)
-                        }
                     }
                     row.addView(chip)
                 }
             }
-            // подсветка активного периода
-            val periods = listOf("day", "week", "month", "year")
+            // Слушатель — на КАЖДОМ бинде: ViewHolder рециклится, и чип,
+            // созданный один раз, навсегда запомнил бы ПЕРВУЮ панель — тапы
+            // меняли период чужой карточки, а текущая не реагировала.
             for (i in 0 until row.childCount) {
                 val chip = row.getChildAt(i) as android.widget.TextView
+                chip.setOnClickListener {
+                    periods.getOrNull(i)?.let { period ->
+                        onChartPeriodSelected?.invoke(panel, period)
+                    }
+                }
                 val active = panel.historyPeriod == periods[i]
                 chip.alpha = if (active) 1f else 0.45f
                 chip.setTypeface(chip.typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
