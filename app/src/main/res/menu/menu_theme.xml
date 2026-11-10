@@ -26,16 +26,6 @@
         app:showAsAction="never" />
 
     <item
-        android:id="@+id/action_ya_backup"
-        android:title="@string/yandex_backup"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_ya_restore"
-        android:title="@string/yandex_restore"
-        app:showAsAction="never" />
-
-    <item
         android:id="@+id/action_ya_settings"
         android:title="@string/yandex_settings"
         app:showAsAction="never" />
@@ -43,11 +33,6 @@
     <item
         android:id="@+id/action_send_log"
         android:title="@string/share_log"
-        app:showAsAction="never" />
-
-    <item
-        android:id="@+id/action_grafana_settings"
-        android:title="@string/grafana_settings"
         app:showAsAction="never" />
 
 </menu>

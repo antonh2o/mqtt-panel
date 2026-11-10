@@ -52,17 +52,60 @@ class ConnectionListFragment : Fragment() {
         binding.recyclerConnections.adapter = adapter
 
         binding.btnAdd.setOnClickListener { editConnection(null) }
-        binding.btnImport.setOnClickListener {
-            (requireActivity() as? MainActivity)?.showImportMenu()
-        }
-        binding.btnExport.setOnClickListener {
-            (requireActivity() as? MainActivity)?.exportSettings()
+        binding.btnImport.setOnClickListener { showImportDialog() }
+        binding.btnExport.setOnClickListener { showExportDialog() }
+        binding.cardGrafana.setOnClickListener {
+            (requireActivity() as? MainActivity)?.grafanaSettings()
         }
     }
 
     override fun onResume() {
         super.onResume()
         loadConnections()
+        refreshGrafanaCard()
+    }
+
+    /** Подзаголовок карточки Grafana: адрес сервера или приглашение настроить */
+    private fun refreshGrafanaCard() {
+        if (_binding == null) return
+        val cred = ru.mqtt.panel.data.GrafanaApi.credentials(requireContext().applicationContext)
+        binding.tvGrafanaStatus.text = if (cred.configured)
+            getString(R.string.grafana_card_configured, cred.url)
+        else getString(R.string.grafana_card_not_configured)
+    }
+
+    /** Единая точка импорта: из файла или из Яндекс Диска */
+    private fun showImportDialog() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.import_from)
+            .setItems(arrayOf(
+                getString(R.string.import_source_file),
+                getString(R.string.import_source_yandex)
+            )) { _, which ->
+                when (which) {
+                    0 -> (requireActivity() as? MainActivity)?.showImportMenu()
+                    1 -> (requireActivity() as? MainActivity)?.yandexRestore()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Единая точка экспорта: в файл или на Яндекс Диск */
+    private fun showExportDialog() {
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.export_to)
+            .setItems(arrayOf(
+                getString(R.string.export_target_file),
+                getString(R.string.export_target_yandex)
+            )) { _, which ->
+                when (which) {
+                    0 -> (requireActivity() as? MainActivity)?.exportSettings()
+                    1 -> (requireActivity() as? MainActivity)?.yandexBackup()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun loadConnections() {

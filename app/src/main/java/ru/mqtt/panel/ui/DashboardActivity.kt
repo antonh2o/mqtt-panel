@@ -1007,18 +1007,24 @@ class DashboardActivity : AppCompatActivity() {
         if (panel.type == WidgetType.MULTI_CHART) {
             // по серии на запрос: значение тега = тема серии
             val loaded = mutableListOf<Pair<Int, List<NarodmonApi.NmPoint>>>()
+            val topics = panel.series.count { it.topic.isNotBlank() }
             panel.series.forEachIndexed { i, s ->
                 if (s.topic.isBlank()) return@forEachIndexed
                 runCatching {
                     ru.mqtt.panel.data.GrafanaApi.history(settings, measurement, field, tag, s.topic, period)
-                }.onSuccess { loaded.add(i to it) }
-                    .onFailure { e ->
-                        if (firstError == null) firstError = e.message ?: e.javaClass.simpleName
-                        ImportLog.write(applicationContext,
-                            "GRAFANA ${panel.name}[серия $i] ${s.topic} → ${e.message}")
-                    }
+                }.onSuccess { pts ->
+                    loaded.add(i to pts)
+                    ImportLog.write(applicationContext,
+                        "GRAFANA ${panel.name}[серия $i] ${s.topic} $measurement/$field $period → ${pts.size} точек")
+                }.onFailure { e ->
+                    if (firstError == null) firstError = e.message ?: e.javaClass.simpleName
+                    ImportLog.write(applicationContext,
+                        "GRAFANA ${panel.name}[серия $i] ${s.topic} → ${e.message}")
+                }
                 delay(300L)
             }
+            ImportLog.write(applicationContext,
+                "GRAFANA ${panel.name}: период $period, серий с данными ${loaded.size}/$topics")
             withContext(Dispatchers.Main) {
                 loaded.forEach { (i, pts) ->
                     widgetAdapter.prependMultiHistory(panel.id, i, pts.map { ChartView.TimePoint(it.t, it.v) })
@@ -1045,6 +1051,8 @@ class DashboardActivity : AppCompatActivity() {
             val pts = ru.mqtt.panel.data.GrafanaApi.history(
                 settings, measurement, field, tag, panel.topicSubscribe, period
             )
+            ImportLog.write(applicationContext,
+                "GRAFANA ${panel.name} ${measurement}/${field} ($tag=${panel.topicSubscribe}) период $period → ${pts.size} точек")
             if (pts.isEmpty()) return "нет данных"
             withContext(Dispatchers.Main) {
                 widgetAdapter.prependHistory(panel.id, pts.map { ChartView.TimePoint(it.t, it.v) })

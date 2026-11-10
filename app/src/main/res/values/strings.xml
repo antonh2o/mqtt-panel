@@ -97,6 +97,16 @@
     <string name="log_empty">Журнал пуст</string>
     <string name="history_unavailable">История не получена: %1$s</string>
     <string name="grafana_settings">Настройки Grafana</string>
+    <string name="grafana_card_title">Grafana — история графиков</string>
+    <string name="grafana_card_not_configured">Не настроено — нажмите, чтобы подключить</string>
+    <string name="grafana_card_configured">%1$s — нажмите, чтобы изменить</string>
+    <string name="grafana_card_open">Настроить</string>
+    <string name="import_from">Импорт настроек — откуда?</string>
+    <string name="import_source_file">Из файла</string>
+    <string name="import_source_yandex">Из Яндекс Диска</string>
+    <string name="export_to">Экспорт настроек — куда?</string>
+    <string name="export_target_file">В файл</string>
+    <string name="export_target_yandex">На Яндекс Диск (резервная копия)</string>
     <string name="grafana_url_hint">Адрес Grafana (https://grafana.dom или http://192.168.1.10:3000)</string>
     <string name="grafana_user_hint">Логин Grafana</string>
     <string name="grafana_pass_hint">Пароль Grafana</string>

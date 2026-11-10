@@ -148,11 +148,8 @@ class MainActivity : AppCompatActivity() {
             R.id.action_theme_dark -> ThemePrefs.DARK
             R.id.action_theme_auto -> ThemePrefs.SYSTEM
             R.id.action_check_updates -> { checkForUpdates(manual = true); return true }
-            R.id.action_ya_backup -> { yandexBackup(); return true }
-            R.id.action_ya_restore -> { yandexRestore(); return true }
             R.id.action_ya_settings -> { yandexSettings(); return true }
             R.id.action_send_log -> { shareLog(); return true }
-            R.id.action_grafana_settings -> { grafanaSettings(); return true }
             else -> return super.onOptionsItemSelected(item)
         }
         ThemePrefs.save(this, mode)
@@ -304,7 +301,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Выгрузка настроек на Яндекс Диск (если токен получен) */
-    private fun yandexBackup() {
+    fun yandexBackup() {
         val cred = YandexDisk.credentials(this)
         if (cred.token.isBlank()) {
             Toast.makeText(this, R.string.yandex_need_token, Toast.LENGTH_LONG).show()
@@ -328,7 +325,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Восстановление настроек из Яндекс Диска (полная замена конфигурации) */
-    private fun yandexRestore() {
+    fun yandexRestore() {
         val cred = YandexDisk.credentials(this)
         if (cred.token.isBlank()) {
             Toast.makeText(this, R.string.yandex_need_token, Toast.LENGTH_LONG).show()
@@ -456,7 +453,7 @@ class MainActivity : AppCompatActivity() {
      * Настройки Grafana: адрес, basic auth, UID datasource. Живые значения
      * карточек остаются из MQTT — Grafana нужна только для истории графиков.
      */
-    private fun grafanaSettings() {
+    fun grafanaSettings() {
         val root = LayoutInflater.from(this)
             .inflate(R.layout.dialog_grafana, null)
         val etUrl = root.findViewById<android.widget.EditText>(R.id.et_grafana_url)

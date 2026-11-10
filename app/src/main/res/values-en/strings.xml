@@ -97,6 +97,16 @@
     <string name="log_empty">Log is empty</string>
     <string name="history_unavailable">History unavailable: %1$s</string>
     <string name="grafana_settings">Grafana settings</string>
+    <string name="grafana_card_title">Grafana — chart history</string>
+    <string name="grafana_card_not_configured">Not configured — tap to connect</string>
+    <string name="grafana_card_configured">%1$s — tap to change</string>
+    <string name="grafana_card_open">Setup</string>
+    <string name="import_from">Import settings — from where?</string>
+    <string name="import_source_file">From file</string>
+    <string name="import_source_yandex">From Yandex Disk</string>
+    <string name="export_to">Export settings — to where?</string>
+    <string name="export_target_file">To file</string>
+    <string name="export_target_yandex">To Yandex Disk (backup)</string>
     <string name="grafana_url_hint">Grafana URL (https://grafana.dom or http://192.168.1.10:3000)</string>
     <string name="grafana_user_hint">Grafana login</string>
     <string name="grafana_pass_hint">Grafana password</string>
