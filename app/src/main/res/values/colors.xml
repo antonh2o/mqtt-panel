@@ -11,5 +11,5 @@
     <color name="md_theme_surface">#F9FAF6</color>
     <color name="md_theme_onSurface">#191C1A</color>
     <color name="md_theme_error">#BA1A1A</color>
-    <color name="ic_launcher_bg">#FFFFFF</color>
+    <color name="ic_launcher_bg">#000000</color>
 </resources>

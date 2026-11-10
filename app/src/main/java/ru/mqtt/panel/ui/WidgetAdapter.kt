@@ -379,11 +379,27 @@ class WidgetAdapter(
             val min = panel.sliderMin
             val max = if (panel.sliderMax > min) panel.sliderMax else min + 100
             val v = panel.lastValue.toFloatOrNull()?.toDouble()
-            val fraction = if (v == null) 0f
-            else (((v - min) / (max - min)).toFloat()).coerceIn(0f, 1f)
             bar?.max = 10000
-            bar?.progress = (fraction * 10000).toInt()
-            if (v != null) {
+            if (v == null) {
+                bar?.progress = 0
+            } else if (v < min) {
+                // ниже Мин — полоса полностью в цвете минимума
+                bar?.progress = 10000
+                vertical?.fraction = 1f
+                horizontal?.fraction = 1f
+                ColorRange.resolve(panel.colorMin, panel.colorMid, panel.colorMax, min, max, min)
+                    ?.let { c ->
+                        bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
+                        vertical?.fillColor = c
+                        horizontal?.fillColor = c
+                    }
+            } else {
+                // значение ниже Мин — полоса полностью в цвете минимума,
+                // выше Макс — в цвете максимума (как в IoT MQTT Panel)
+                val f = ((v - min) / (max - min)).coerceIn(0.0, 1.0)
+                bar?.progress = (f * 10000).toInt()
+                vertical?.fraction = f.toFloat()
+                horizontal?.fraction = f.toFloat()
                 ColorRange.resolve(panel.colorMin, panel.colorMid, panel.colorMax, min, max, v)
                     ?.let { c ->
                         bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
@@ -391,8 +407,6 @@ class WidgetAdapter(
                         horizontal?.fillColor = c
                     }
             }
-            vertical?.fraction = fraction
-            horizontal?.fraction = fraction
             tvValue?.text = withUnit(panel, panel.lastValue)
         }
 
