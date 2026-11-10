@@ -81,12 +81,18 @@ class AppRepository(private val context: Context) {
             // нет, и они физически null despite non-null типы — чистим здесь
             it.copy(narodmon = it.narodmon ?: false, apiKey = it.apiKey ?: "").copy(id = ++cid)
         }
-        // При импорте на новое устройство генерируем новые ClientID,
-        // чтобы два одинаковых конфига не рвали соединение друг друга
-        val fixedConnections2 = fixedConnections.map { it.copy(
-            clientId = if (it.clientId.isNotBlank()) it.clientId
-            else "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
-        ) }
+        // ClientID уникален для каждого устройства: брокер разрывает
+        // соединение клиента с уже занятым ID, поэтому два приложения,
+        // развёрнутые из одной резервной копии, флапают, выбивая друг
+        // друга. Раньше ID менялся только если поле пустое — а в копии
+        // оно всегда заполнено, и дубликат выживал. Сессии у нас не
+        // хранятся (cleanSession), поэтому новый ID при каждом запуске/
+        // импорте безопасен. Народмон ходит через REST, MQTT-ID не нужен.
+        val fixedConnections2 = fixedConnections.map {
+            if (it.narodmon) it else it.copy(
+                clientId = "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
+            )
+        }
         var pid = 0L
         val oldToNew = connections.mapIndexed { i, c -> c.id to fixedConnections2[i].id }.toMap()
         val fixedPanels = panels.map {
