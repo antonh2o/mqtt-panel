@@ -4,17 +4,17 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 
 **Текущая версия:** 0.2.44 · minSdk 24 (Android 7.0) · Kotlin · Eclipse Paho 1.2.5
 
-| Дашборд: мультиграфик + шкала времени · карточки с эмодзи и динамическим цветом |
+| Дашборд: мультиграфик + шкала времени · динамический цвет · тёмная тема |
 |---|
-| <img src="screenshots/dashboard.png" width="49%"> <img src="screenshots/emoji-cards.png" width="49%"> |
-| <img src="screenshots/narodmon-dash.png" width="49%"> <img src="screenshots/theme-dark.png" width="49%"> |
-| <img src="screenshots/chart-color-editor.png" width="49%"> <img src="screenshots/series-editor.png" width="49%"> |
+| <img src="screenshots/dashboard.png" width="49%"> <img src="screenshots/narodmon-dash.png" width="49%"> |
+| <img src="screenshots/theme-dark.png" width="49%"> <img src="screenshots/chart-color-editor.png" width="49%"> |
+| <img src="screenshots/series-editor.png" width="49%"> |
 
 ## Возможности
 
 **Виджеты** — 10 типов: Значение, Переключатель, Кнопка, Слайдер, Светодиод, Текст, График, **Мультиграфик** — несколько топиков на одном графике с легендой цветов (линии, подписи и темы серий настраиваются в редакторе панели; удобно для «Температура: Баня / Дом / Улица» или «Электрика: Напряжение / Ток / Мощность») — и **Прогресс** в вертикальном и горизонтальном вариантах (см. ниже).
 
-В названии и в единицах измерения карточки можно использовать эмодзи: `🌡`, `💧 %`, `🔋 %` — значения читаются с одного взгляда (см. скриншот выше).
+В названии и в единицах измерения карточки можно использовать эмодзи: `🌡`, `💧 %`, `🔋 %` — значения читаются с одного взгляда.
 
 **Сетка 6 колонок** — каждая карточка занимает всю ширину, 1/2 или 1/3; перестановка drag & drop в режиме «Перемещение».
 
