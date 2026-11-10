@@ -16,6 +16,7 @@ import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.WidgetType
+import ru.mqtt.panel.data.parseNumber
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -119,7 +120,8 @@ class WidgetAdapter(
         panel.lastValue = value
         if (time > panel.lastTime) panel.lastTime = time
         if (panel.type == WidgetType.CHART) {
-            value.toFloatOrNull()?.let { v ->
+            parseNumber(value)?.let { d ->
+                val v = d.toFloat()
                 val history = chartHistory.getOrPut(panel.id) { mutableListOf() }
                 history.add(ChartView.TimePoint(time, v))
                 while (history.size > panel.chartPoints) history.removeFirst()
@@ -131,7 +133,8 @@ class WidgetAdapter(
     private fun applyMultiValue(panel: Panel, seriesIndex: Int, value: String, time: Long = System.currentTimeMillis()) {
         panel.lastValue = value
         if (time > panel.lastTime) panel.lastTime = time
-        value.toFloatOrNull()?.let { v ->
+        parseNumber(value)?.let { d ->
+            val v = d.toFloat()
             val history = chartMultiHistory.getOrPut("${panel.id}:$seriesIndex") { mutableListOf() }
             history.add(ChartView.TimePoint(time, v))
             while (history.size > panel.chartPoints) history.removeAt(0)
@@ -359,7 +362,7 @@ class WidgetAdapter(
     private fun applyDynamicColor(tv: TextView?, panel: Panel) {
         if (tv == null) return
         if (defaultValueColor == null) defaultValueColor = tv.currentTextColor
-        val v = panel.lastValue.toFloatOrNull()?.toDouble()
+        val v = parseNumber(panel.lastValue)
         val color = if (v != null) ColorRange.resolve(
             panel.colorMin, panel.colorMid, panel.colorMax,
             panel.sliderMin, panel.sliderMax, v
@@ -378,7 +381,7 @@ class WidgetAdapter(
             if (bar == null && vertical == null && horizontal == null) return
             val min = panel.sliderMin
             val max = if (panel.sliderMax > min) panel.sliderMax else min + 100
-            val v = panel.lastValue.toFloatOrNull()?.toDouble()
+            val v = parseNumber(panel.lastValue)
             bar?.max = 10000
             if (v == null) {
                 bar?.progress = 0
@@ -435,7 +438,7 @@ class WidgetAdapter(
             sl.valueFrom = panel.sliderMin.toFloat()
             sl.valueTo = max(panel.sliderMin.toFloat() + 1f, panel.sliderMax.toFloat())
             sl.stepSize = 0f
-            val current = panel.lastValue.toFloatOrNull()?.coerceIn(sl.valueFrom, sl.valueTo) ?: sl.valueFrom
+            val current = parseNumber(panel.lastValue)?.toFloat()?.coerceIn(sl.valueFrom, sl.valueTo) ?: sl.valueFrom
             sl.clearOnChangeListeners()
             sl.clearOnSliderTouchListeners()
             sl.value = current
@@ -495,7 +498,9 @@ class WidgetAdapter(
             cv.clear()
             history?.forEach { cv.addTimePoint(it.t, it.v) }
             if (history.isNullOrEmpty()) {
-                panel.lastValue.toFloatOrNull()?.let { cv.addTimePoint(max(panel.lastTime, 0L).takeIf { it > 0 } ?: System.currentTimeMillis(), it) }
+                parseNumber(panel.lastValue)?.let { d ->
+                    cv.addTimePoint(max(panel.lastTime, 0L).takeIf { it > 0 } ?: System.currentTimeMillis(), d.toFloat())
+                }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
             bindPeriodChips(panel)

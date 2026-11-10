@@ -267,14 +267,16 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             val json = repository.exportConfig()
-            val (ok, err) = YandexDisk.upload(applicationContext, cred.token, json)
+            val (ok, msg) = YandexDisk.upload(applicationContext, cred.token, json)
             if (ok) {
+                // msg может уточнять, куда легла копия («папка приложения»)
                 Toast.makeText(this@MainActivity,
-                    R.string.yandex_backup_done, Toast.LENGTH_LONG).show()
+                    getString(R.string.yandex_backup_done) + (msg ?: ""),
+                    Toast.LENGTH_LONG).show()
             } else {
                 // показать причину платформы (нет прав Диска, истёк токен и т.п.)
                 Toast.makeText(this@MainActivity,
-                    err ?: getString(R.string.yandex_backup_failed), Toast.LENGTH_LONG).show()
+                    msg ?: getString(R.string.yandex_backup_failed), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -292,13 +294,14 @@ class MainActivity : AppCompatActivity() {
             .setMessage(R.string.yandex_restore_confirm)
             .setPositiveButton(R.string.save) { _, _ ->
                 lifecycleScope.launch {
-                    val json = YandexDisk.download(applicationContext, cred.token)
-                    if (json.isNullOrBlank()) {
+                    val (okDl, res) = YandexDisk.download(applicationContext, cred.token)
+                    if (!okDl) {
                         Toast.makeText(this@MainActivity,
-                            R.string.yandex_restore_empty, Toast.LENGTH_LONG).show()
+                            res ?: getString(R.string.yandex_restore_empty),
+                            Toast.LENGTH_LONG).show()
                         return@launch
                     }
-                    val ok = repository.importConfig(json)
+                    val ok = repository.importConfig(res ?: "")
                     Toast.makeText(this@MainActivity,
                         if (ok) R.string.yandex_restore_done else R.string.import_error,
                         Toast.LENGTH_LONG).show()
