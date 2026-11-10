@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity() {
             R.id.action_ya_backup -> { yandexBackup(); return true }
             R.id.action_ya_restore -> { yandexRestore(); return true }
             R.id.action_ya_settings -> { yandexSettings(); return true }
+            R.id.action_send_log -> { shareLog(); return true }
             else -> return super.onOptionsItemSelected(item)
         }
         ThemePrefs.save(this, mode)

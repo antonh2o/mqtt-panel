@@ -40,4 +40,9 @@
         android:title="@string/yandex_settings"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_send_log"
+        android:title="@string/share_log"
+        app:showAsAction="never" />
+
 </menu>
