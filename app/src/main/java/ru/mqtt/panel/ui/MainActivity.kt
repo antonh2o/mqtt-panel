@@ -267,10 +267,15 @@ class MainActivity : AppCompatActivity() {
         }
         lifecycleScope.launch {
             val json = repository.exportConfig()
-            val ok = YandexDisk.upload(applicationContext, cred.token, json)
-            Toast.makeText(this@MainActivity,
-                if (ok) R.string.yandex_backup_done else R.string.yandex_backup_failed,
-                Toast.LENGTH_LONG).show()
+            val (ok, err) = YandexDisk.upload(applicationContext, cred.token, json)
+            if (ok) {
+                Toast.makeText(this@MainActivity,
+                    R.string.yandex_backup_done, Toast.LENGTH_LONG).show()
+            } else {
+                // показать причину платформы (нет прав Диска, истёк токен и т.п.)
+                Toast.makeText(this@MainActivity,
+                    err ?: getString(R.string.yandex_backup_failed), Toast.LENGTH_LONG).show()
+            }
         }
     }
 

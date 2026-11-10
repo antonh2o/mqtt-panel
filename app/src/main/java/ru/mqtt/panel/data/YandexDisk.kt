@@ -55,24 +55,39 @@ object YandexDisk {
 
     /**
      * Загрузить текст в /backup/mqtt-panel-config.json (overwrite=true).
-     * true — успех (201/200).
+     * Протокол Диска двухшаговый: сначала GET ссылки загрузки
+     * (v1/disk/resources/upload), затем PUT контента по полученному href.
+     * Возвращает (успех, текст ошибки платформы).
      */
-    suspend fun upload(context: Context, token: String, content: String): Boolean =
+    suspend fun upload(context: Context, token: String, content: String): Pair<Boolean, String?> =
         withContext(Dispatchers.IO) {
-            if (token.isBlank()) return@withContext false
+            if (token.isBlank()) return@withContext Pair(false, "Не задан OAuth-токен Яндекса")
             runCatching {
                 val path = URLEncoder.encode(REMOTE_PATH, "UTF-8")
+                // шаг 1: получить ссылку загрузки
                 val conn = URL(
-                    "https://cloud-api.yandex.net/v1/disk/resources?path=$path&overwrite=true"
+                    "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$path&overwrite=true"
                 ).openConnection() as HttpURLConnection
-                conn.requestMethod = "PUT"
                 conn.connectTimeout = 20_000
-                conn.readTimeout = 60_000
+                conn.readTimeout = 30_000
                 conn.setRequestProperty("Authorization", "OAuth $token")
-                conn.doOutput = true
-                conn.outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
-                conn.responseCode in 200..299
-            }.getOrDefault(false)
+                if (conn.responseCode !in 200..299) {
+                    val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    return@runCatching Pair(false, "HTTP ${conn.responseCode}: ${err.take(200)}")
+                }
+                val href = org.json.JSONObject(
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                ).optString("href")
+                if (href.isBlank()) return@runCatching Pair(false, "Диск не вернул ссылку загрузки")
+                // шаг 2: PUT контента по ссылке
+                val put = URL(href).openConnection() as HttpURLConnection
+                put.requestMethod = "PUT"
+                put.connectTimeout = 20_000
+                put.readTimeout = 60_000
+                put.doOutput = true
+                put.outputStream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                Pair(put.responseCode in 200..299, null)
+            }.getOrDefault(Pair(false, "Не удалось соединиться с Яндекс Диском"))
         }
 
     /**
