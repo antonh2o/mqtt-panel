@@ -44,8 +44,8 @@ class VerticalProgressView @JvmOverloads constructor(
     }
 
     private val density = resources.displayMetrics.density
-    private val corner = 4f * density
-    private val inset = 3f * density
+    private val corner = 5f * density
+    private val inset = 5f * density
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)

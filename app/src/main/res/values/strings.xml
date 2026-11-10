@@ -147,6 +147,12 @@
     <string name="period_day">Сутки</string>
     <string name="period_week">Неделя</string>
     <string name="period_month">Месяц</string>
+    <string name="check_updates">Проверить обновления</string>
+    <string name="update_latest">У вас последняя версия</string>
+    <string name="update_available">Доступна версия %1$s — скачать?</string>
+    <string name="update_downloading">Скачивание…</string>
+    <string name="update_download_failed">Не удалось скачать обновление</string>
+    <string name="update_install">Установить</string>
     <string name="sensor_picker_title">Датчики Народного Мониторинга</string>
     <string name="sensor_none">Датчики не найдены. Проверьте логин/пароль в подключении и лимит платформы</string>
     <string name="sensor_loading">Загрузка датчиков…</string>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Переключатель периода истории (Народмон): чипы 1d/1w/1m/1y -->
+<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/period_chips_scroll"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginTop="2dp"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:id="@+id/period_chips"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingVertical="2dp" />
+
+</HorizontalScrollView>

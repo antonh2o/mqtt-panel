@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.MqttConnection
 import ru.mqtt.panel.data.NarodmonApi
+import ru.mqtt.panel.data.ImportLog
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.ui.MainActivity
 import java.util.concurrent.atomic.AtomicBoolean
@@ -161,9 +162,12 @@ class NarodmonService : Service() {
             } catch (e: NarodmonApi.RateLimitException) {
                 backoff = (backoff * 2).coerceAtMost(10)
                 Log.w(TAG, "429 — интервал опроса x$backoff")
+                ImportLog.write(applicationContext, "NARODMON poll: лимит платформы (429), интервал опроса x$backoff")
                 connectionState = ConnectionState.CONNECTING
                 broadcastStatus(ConnectionState.CONNECTING)
             } catch (e: Exception) {
+                // причина в журнал: пользователь без adb увидит её в mqtt-import.log
+                ImportLog.write(applicationContext, "NARODMON poll failed: ${e.javaClass.simpleName}: ${e.message}")
                 Log.w(TAG, "poll failed", e)
                 connectionState = ConnectionState.CONNECTING
                 broadcastStatus(ConnectionState.CONNECTING)

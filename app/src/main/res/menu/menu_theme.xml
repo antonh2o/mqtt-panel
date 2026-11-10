@@ -20,4 +20,9 @@
         android:title="@string/theme_system"
         app:showAsAction="always" />
 
+    <item
+        android:id="@+id/action_check_updates"
+        android:title="@string/check_updates"
+        app:showAsAction="never" />
+
 </menu>

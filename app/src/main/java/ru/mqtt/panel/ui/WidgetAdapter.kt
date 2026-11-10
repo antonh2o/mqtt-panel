@@ -30,7 +30,9 @@ class WidgetAdapter(
     private val onDelete: (Panel) -> Unit,
     private val onDuplicate: (Panel) -> Unit,
     private val onPublish: (Panel, String) -> Unit,
-    private val onDragStart: (RecyclerView.ViewHolder) -> Unit = {}
+    private val onDragStart: (RecyclerView.ViewHolder) -> Unit = {},
+    /** смена периода истории на narodmon-карточке графика (чипы 1d/1w/1m/1y) */
+    var onChartPeriodSelected: ((Panel, String) -> Unit)? = null
 ) : RecyclerView.Adapter<WidgetAdapter.BaseHolder>() {
 
     private val items = mutableListOf<Panel>()
@@ -134,6 +136,13 @@ class WidgetAdapter(
             history.add(ChartView.TimePoint(time, v))
             while (history.size > panel.chartPoints) history.removeAt(0)
         }
+    }
+
+    /** Очистить точки графика (на время загрузки нового периода истории) */
+    fun resetChartHistory(panelId: Long) {
+        chartHistory[panelId]?.clear()
+        val idx = items.indexOfFirst { it.id == panelId }
+        if (idx >= 0) notifyItemChanged(idx)
     }
 
     /** Дописать историю из Народмона ПЕРЕД live-точками (без дублей по времени) */
@@ -254,6 +263,7 @@ class WidgetAdapter(
         private val ledDot: View? = view.findViewById(R.id.led_dot)
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
         private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
+        private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
         private val progressBar: android.widget.ProgressBar? = view.findViewById(R.id.progress_bar)
         private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
 
@@ -471,6 +481,47 @@ class WidgetAdapter(
                 panel.lastValue.toFloatOrNull()?.let { cv.addTimePoint(max(panel.lastTime, 0L).takeIf { it > 0 } ?: System.currentTimeMillis(), it) }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
+            bindPeriodChips(panel)
+        }
+
+        /** Чипы периода «1d 1w 1m 1y» — только на narodmon-графиках */
+        private fun bindPeriodChips(panel: Panel) {
+            val row = periodChips ?: return
+            if (panel.source != "narodmon") {
+                row.visibility = View.GONE
+                return
+            }
+            row.visibility = View.VISIBLE
+            if (row.childCount == 0) {
+                val d = row.context.resources.displayMetrics.density
+                listOf("1d" to "day", "1w" to "week", "1m" to "month", "1y" to "year").forEach { (label, period) ->
+                    val chip = android.widget.TextView(row.context).apply {
+                        text = label
+                        textSize = 11f
+                        setPadding((10 * d).toInt(), (2 * d).toInt(), (10 * d).toInt(), (2 * d).toInt())
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            cornerRadius = 12 * d
+                            setColor(0x22888888)
+                        }
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { marginEnd = (4 * d).toInt() }
+                        setOnClickListener {
+                            onChartPeriodSelected?.invoke(panel, period)
+                        }
+                    }
+                    row.addView(chip)
+                }
+            }
+            // подсветка активного периода
+            val periods = listOf("day", "week", "month", "year")
+            for (i in 0 until row.childCount) {
+                val chip = row.getChildAt(i) as android.widget.TextView
+                val active = panel.historyPeriod == periods[i]
+                chip.alpha = if (active) 1f else 0.45f
+                chip.setTypeface(chip.typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            }
         }
 
         /** Мультиграфик: линии по темам серий + легенда «цвет — подпись».

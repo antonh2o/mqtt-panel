@@ -138,6 +138,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
+        if (item.itemId == R.id.action_check_updates) {
+            checkForUpdates(manual = true)
+            return true
+        }
         val mode = when (item.itemId) {
             R.id.action_theme_light -> ThemePrefs.LIGHT
             R.id.action_theme_dark -> ThemePrefs.DARK
@@ -163,11 +167,65 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Проверка обновлений: свежий APK — в папке apk/ этого же репозитория
+     * на GitHub. manual=true — показать результат тостом, иначе только
+     * диалог при наличии новой версии.
+     */
+    private fun checkForUpdates(manual: Boolean) {
+        lifecycleScope.launch {
+            val info = ru.mqtt.panel.data.UpdateChecker.latest(applicationContext)
+            val current = appVersion()
+            if (info == null || !ru.mqtt.panel.data.UpdateChecker.isNewer(info.version, current)) {
+                if (manual) Toast.makeText(this@MainActivity,
+                    R.string.update_latest, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(getString(R.string.update_available, info.version))
+                .setPositiveButton(R.string.update_install) { _, _ ->
+                    downloadAndInstall(info)
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun downloadAndInstall(info: ru.mqtt.panel.data.UpdateChecker.Info) {
+        Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val dir = java.io.File(cacheDir, "update").apply { mkdirs() }
+            val apk = java.io.File(dir, info.apkName)
+            val ok = ru.mqtt.panel.data.UpdateChecker.download(applicationContext, info.url, apk)
+            if (!ok) {
+                Toast.makeText(this@MainActivity,
+                    R.string.update_download_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this@MainActivity, "$packageName.fileprovider", apk
+            )
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         LocalBroadcastManager.getInstance(this).registerReceiver(
             statusReceiver, IntentFilter(MqttService.BROADCAST_STATUS)
         )
+        // авто-проверка обновлений не чаще раза в 12 часов
+        val prefs = getSharedPreferences("ui", MODE_PRIVATE)
+        val last = prefs.getLong("last_update_check", 0L)
+        if (System.currentTimeMillis() - last > 12 * 3600_000L) {
+            prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply()
+            checkForUpdates(manual = false)
+        }
     }
 
     override fun onPause() {

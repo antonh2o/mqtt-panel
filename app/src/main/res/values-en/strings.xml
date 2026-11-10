@@ -147,6 +147,12 @@
     <string name="period_day">Day</string>
     <string name="period_week">Week</string>
     <string name="period_month">Month</string>
+    <string name="check_updates">Check for updates</string>
+    <string name="update_latest">You are on the latest version</string>
+    <string name="update_available">Version %1$s is available — download?</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_download_failed">Failed to download the update</string>
+    <string name="update_install">Install</string>
     <string name="sensor_picker_title">Narodmon sensors</string>
     <string name="sensor_none">No sensors found. Check the login/password in the connection and the platform rate limit</string>
     <string name="sensor_loading">Loading sensors…</string>

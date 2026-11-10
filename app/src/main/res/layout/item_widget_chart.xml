@@ -38,6 +38,8 @@
 
         </FrameLayout>
 
+        <include layout="@layout/view_chart_periods" />
+
         <TextView
             android:id="@+id/tv_value"
             android:layout_width="match_parent"
