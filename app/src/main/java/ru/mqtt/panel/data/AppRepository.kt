@@ -108,7 +108,11 @@ class AppRepository(private val context: Context) {
                 colorMin = it.colorMin ?: "",
                 colorMid = it.colorMid ?: "",
                 colorMax = it.colorMax ?: "",
-                historyPeriod = it.historyPeriod ?: "day"
+                // конфиги из 0.2.36–0.2.47 могли хранить в historyPeriod текст-метку
+                // («Сутки») — редактор писал её при сохранении без выбора периода
+                historyPeriod = it.historyPeriod?.takeIf { p ->
+                    p == "day" || p == "week" || p == "month" || p == "year"
+                } ?: "day"
             )
         }
         return AppConfig(fixedConnections2, fixedPanels)

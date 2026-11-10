@@ -19,8 +19,8 @@ android {
         applicationId = "ru.mqtt.panel"
         minSdk = 24
         targetSdk = 36
-        versionCode = 59
-        versionName = "0.2.47"
+        versionCode = 60
+        versionName = "0.2.48"
         vectorDrawables.useSupportLibrary = true
     }
 

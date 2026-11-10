@@ -993,6 +993,10 @@ class DashboardActivity : AppCompatActivity() {
         val et = root.findViewById<EditText>(R.id.et_history_period)
         val current = periods.indexOf(panel.historyPeriod).takeIf { it >= 0 } ?: 0
         et.setText(labels[current])
+        // tag хранит ЗНАЧЕНИЕ периода: без него сохранение редактора записало бы
+        // в панель текст-метку («Сутки»), и чипы 1d/1w/1m/1y все становились
+        // бы неактивными, а запрос истории ушёл бы с мусорным периодом
+        et.tag = periods[current]
         et.setOnClickListener {
             MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.field_history_period)
