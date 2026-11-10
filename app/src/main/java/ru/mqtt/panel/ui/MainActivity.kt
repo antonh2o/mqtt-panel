@@ -216,11 +216,13 @@ class MainActivity : AppCompatActivity() {
             addView(bar)
             addView(status)
         }
-        @Volatile var cancelled = false
+        // AtomicBoolean: @Volatile на локальной переменной в Kotlin нельзя,
+        // а флаг читается в другом потоке (чтение сети на Dispatchers.IO)
+        val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
         val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.update_available, info.version))
             .setView(box)
-            .setNegativeButton(R.string.cancel) { _, _ -> cancelled = true }
+            .setNegativeButton(R.string.cancel) { _, _ -> cancelled.set(true) }
             .setCancelable(false)
             .show()
         lifecycleScope.launch {
@@ -234,10 +236,10 @@ class MainActivity : AppCompatActivity() {
                     status.text = getString(R.string.update_progress, pct,
                         fmtMb(done), if (total > 0) fmtMb(total) else "?")
                 },
-                cancelled = { cancelled }
+                cancelled = { cancelled.get() }
             )
             dialog.dismiss()
-            if (cancelled) {
+            if (cancelled.get()) {
                 Toast.makeText(this@MainActivity,
                     R.string.update_cancelled, Toast.LENGTH_SHORT).show()
                 return@launch
