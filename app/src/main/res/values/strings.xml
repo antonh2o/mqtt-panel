@@ -153,6 +153,9 @@
     <string name="update_downloading">Скачивание…</string>
     <string name="update_download_failed">Не удалось скачать обновление</string>
     <string name="update_install">Установить</string>
+    <string name="update_checking">Проверяю обновления…</string>
+    <string name="update_progress">%1$d%% (%2$s из %3$s)</string>
+    <string name="update_cancelled">Скачивание отменено</string>
     <string name="yandex_backup">Резервная копия в Яндекс Диск</string>
     <string name="yandex_restore">Восстановить из Яндекс Диска</string>
     <string name="yandex_settings">Яндекс Диск: настройки</string>

@@ -55,20 +55,51 @@ object UpdateChecker {
         }.getOrNull()
     }
 
-    /** Скачать APK во внутренний кэш (для установки через FileProvider) */
-    suspend fun download(context: Context, url: String, target: java.io.File): Boolean =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val conn = URL(url).openConnection() as HttpURLConnection
-                conn.connectTimeout = 30_000
-                conn.readTimeout = 60_000
-                conn.requestMethod = "GET"
-                if (conn.responseCode !in 200..299) return@runCatching false
-                target.parentFile?.mkdirs()
-                conn.inputStream.use { input ->
-                    target.outputStream().use { out -> input.copyTo(out) }
+    /**
+     * Скачать APK во внутренний кэш (для установки через FileProvider).
+     * onProgress — (скачано, всего) в байтах, всего может быть -1 (размер
+     * неизвестен); cancelled — проверить на отмену пользователем.
+     */
+    suspend fun download(
+        context: Context,
+        url: String,
+        target: java.io.File,
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+        cancelled: () -> Boolean = { false }
+    ): Boolean = withContext(Dispatchers.IO) {
+        runCatching {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 30_000
+            conn.readTimeout = 60_000
+            conn.requestMethod = "GET"
+            if (conn.responseCode !in 200..299) return@runCatching false
+            val total = conn.contentLength
+            target.parentFile?.mkdirs()
+            var done = 0
+            var lastReport = 0L
+            conn.inputStream.use { input ->
+                target.outputStream().use { out ->
+                    val buf = ByteArray(16 * 1024)
+                    while (true) {
+                        if (cancelled()) {
+                            target.delete()
+                            return@runCatching false
+                        }
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        done += n
+                        // отчёт не чаще раза в 100 мс — UI не спамим
+                        val now = System.currentTimeMillis()
+                        if (now - lastReport >= 100) {
+                            lastReport = now
+                            onProgress(done, total)
+                        }
+                    }
                 }
-                true
-            }.getOrDefault(false)
-        }
+            }
+            onProgress(done, total)
+            done > 0
+        }.getOrDefault(false)
+    }
 }

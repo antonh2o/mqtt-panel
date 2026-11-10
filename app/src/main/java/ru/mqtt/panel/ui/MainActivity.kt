@@ -179,6 +179,10 @@ class MainActivity : AppCompatActivity() {
      */
     private fun checkForUpdates(manual: Boolean) {
         lifecycleScope.launch {
+            // проверка ходит в GitHub API — на мобильной сети это секунды,
+            // ручная проверка должна показывать, что процесс пошёл
+            if (manual) Toast.makeText(this@MainActivity,
+                R.string.update_checking, Toast.LENGTH_SHORT).show()
             val info = ru.mqtt.panel.data.UpdateChecker.latest(applicationContext)
             val current = appVersion()
             if (info == null || !ru.mqtt.panel.data.UpdateChecker.isNewer(info.version, current)) {
@@ -197,11 +201,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun downloadAndInstall(info: ru.mqtt.panel.data.UpdateChecker.Info) {
-        Toast.makeText(this, R.string.update_downloading, Toast.LENGTH_SHORT).show()
+        // Диалог прогресса: полоса + проценты + «Отмена» — скачивание APK
+        // занимает время, и без индикатора кажется, что ничего не происходит
+        val pad = (24 * resources.displayMetrics.density).toInt()
+        val status = android.widget.TextView(this).apply {
+            setText(R.string.update_downloading)
+            setPadding(0, pad / 2, 0, pad / 2)
+        }
+        val bar = android.widget.ProgressBar(this, null,
+            android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(bar)
+            addView(status)
+        }
+        @Volatile var cancelled = false
+        val dialog = com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.update_available, info.version))
+            .setView(box)
+            .setNegativeButton(R.string.cancel) { _, _ -> cancelled = true }
+            .setCancelable(false)
+            .show()
         lifecycleScope.launch {
             val dir = java.io.File(cacheDir, "update").apply { mkdirs() }
             val apk = java.io.File(dir, info.apkName)
-            val ok = ru.mqtt.panel.data.UpdateChecker.download(applicationContext, info.url, apk)
+            val ok = ru.mqtt.panel.data.UpdateChecker.download(
+                applicationContext, info.url, apk,
+                onProgress = { done, total ->
+                    val pct = if (total > 0) (done * 100L / total).toInt() else 0
+                    bar.progress = pct
+                    status.text = getString(R.string.update_progress, pct,
+                        fmtMb(done), if (total > 0) fmtMb(total) else "?")
+                },
+                cancelled = { cancelled }
+            )
+            dialog.dismiss()
+            if (cancelled) {
+                Toast.makeText(this@MainActivity,
+                    R.string.update_cancelled, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
             if (!ok) {
                 Toast.makeText(this@MainActivity,
                     R.string.update_download_failed, Toast.LENGTH_LONG).show()
@@ -218,6 +258,10 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
     }
+
+    /** Мегабайты для строки прогресса скачивания */
+    private fun fmtMb(bytes: Int): String =
+        String.format(java.util.Locale.US, "%.1f МБ", bytes / 1048576.0)
 
     /** Настройки Яндекс Диска: ClientID + OAuth-токен */
     private fun yandexSettings() {
