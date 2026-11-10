@@ -25,4 +25,19 @@
         android:title="@string/check_updates"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_ya_backup"
+        android:title="@string/yandex_backup"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_ya_restore"
+        android:title="@string/yandex_restore"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_ya_settings"
+        android:title="@string/yandex_settings"
+        app:showAsAction="never" />
+
 </menu>

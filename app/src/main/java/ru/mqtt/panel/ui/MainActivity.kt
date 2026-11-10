@@ -6,12 +6,14 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import ru.mqtt.panel.data.YandexDisk
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
@@ -129,6 +131,7 @@ class MainActivity : AppCompatActivity() {
                 .replace(R.id.fragment_container, ConnectionListFragment.newInstance())
                 .commit()
         }
+        handleYandexOAuth(intent.data)
     }
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
@@ -138,10 +141,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
-        if (item.itemId == R.id.action_check_updates) {
-            checkForUpdates(manual = true)
-            return true
+        when (item.itemId) {
+            R.id.action_check_updates -> checkForUpdates(manual = true)
+            R.id.action_ya_backup -> yandexBackup()
+            R.id.action_ya_restore -> yandexRestore()
+            R.id.action_ya_settings -> yandexSettings()
+            else -> return super.onOptionsItemSelected(item)
         }
+        return true
         val mode = when (item.itemId) {
             R.id.action_theme_light -> ThemePrefs.LIGHT
             R.id.action_theme_dark -> ThemePrefs.DARK
@@ -212,6 +219,104 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(intent)
         }
+    }
+
+    /** Настройки Яндекс Диска: ClientID + OAuth-токен */
+    private fun yandexSettings() {
+        val root = LayoutInflater.from(this)
+            .inflate(R.layout.dialog_yandex, null)
+        val etClient = root.findViewById<android.widget.EditText>(R.id.et_ya_client_id)
+        val etToken = root.findViewById<android.widget.EditText>(R.id.et_ya_token)
+        val cred = YandexDisk.credentials(this)
+        etClient.setText(cred.clientId)
+        etToken.setText(cred.token)
+
+        root.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_ya_get_token)
+            .setOnClickListener {
+                val clientId = etClient.text.toString().trim()
+                if (clientId.isBlank()) {
+                    Toast.makeText(this, R.string.yandex_need_client, Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                // браузер: вход в Яндекс → согласие → редирект mqttpanel://yandex-oauth#access_token=…
+                startActivity(android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(YandexDisk.authUrl(clientId))
+                ))
+            }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.yandex_settings)
+            .setView(root)
+            .setPositiveButton(R.string.save) { _, _ ->
+                YandexDisk.saveCredentials(
+                    this, etClient.text.toString().trim(), etToken.text.toString().trim()
+                )
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Выгрузка настроек на Яндекс Диск (если токен получен) */
+    private fun yandexBackup() {
+        val cred = YandexDisk.credentials(this)
+        if (cred.token.isBlank()) {
+            Toast.makeText(this, R.string.yandex_need_token, Toast.LENGTH_LONG).show()
+            yandexSettings()
+            return
+        }
+        lifecycleScope.launch {
+            val json = repository.exportConfig()
+            val ok = YandexDisk.upload(applicationContext, cred.token, json)
+            Toast.makeText(this@MainActivity,
+                if (ok) R.string.yandex_backup_done else R.string.yandex_backup_failed,
+                Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Восстановление настроек из Яндекс Диска (полная замена конфигурации) */
+    private fun yandexRestore() {
+        val cred = YandexDisk.credentials(this)
+        if (cred.token.isBlank()) {
+            Toast.makeText(this, R.string.yandex_need_token, Toast.LENGTH_LONG).show()
+            yandexSettings()
+            return
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.yandex_restore)
+            .setMessage(R.string.yandex_restore_confirm)
+            .setPositiveButton(R.string.save) { _, _ ->
+                lifecycleScope.launch {
+                    val json = YandexDisk.download(applicationContext, cred.token)
+                    if (json.isNullOrBlank()) {
+                        Toast.makeText(this@MainActivity,
+                            R.string.yandex_restore_empty, Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                    val ok = repository.importConfig(json)
+                    Toast.makeText(this@MainActivity,
+                        if (ok) R.string.yandex_restore_done else R.string.import_error,
+                        Toast.LENGTH_LONG).show()
+                    if (ok) refreshFragment()
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** OAuth-токен Яндекс Диска из deep link: mqttpanel://yandex-oauth#access_token=… */
+    private fun handleYandexOAuth(data: android.net.Uri?) {
+        if (data == null || data.host != "yandex-oauth") return
+        val token = Regex("access_token=([^&]+)").find(data.encodedFragment ?: "")?.groupValues?.get(1)
+        if (!token.isNullOrBlank()) {
+            YandexDisk.saveToken(this, token)
+            Toast.makeText(this, R.string.yandex_token_saved, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleYandexOAuth(intent.data)
     }
 
     override fun onResume() {
