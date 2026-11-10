@@ -230,6 +230,8 @@ class DashboardActivity : AppCompatActivity() {
             },
             onDragStart = { holder -> dragHelper?.startDrag(holder) }
         )
+        // Чипы «1d/1w/1m/1y» на narodmon-графике: сохранить период и перезагрузить историю
+        widgetAdapter.onChartPeriodSelected = { panel, period -> onChartPeriodChanged(panel, period) }
 
         // Сетка 6 колонок: span панели = 6 (вся ширина), 3 (1/2) или 2 (1/3)
         val grid = GridLayoutManager(this, 6)
@@ -886,6 +888,59 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /**
+     * Чип «1d/1w/1m/1y» на narodmon-графике: сохранить период панели,
+     * сбросить кэш истории прежнего масштаба (иначе масштабы смешаются)
+     * и перезагрузить историю карточки одним запросом.
+     */
+    private fun onChartPeriodChanged(panel: Panel, period: String) {
+        if (panel.historyPeriod == period) return
+        lifecycleScope.launch {
+            val updated = panel.copy(historyPeriod = period)
+            repository.updatePanel(updated)
+            val all = repository.loadRuntimeValues(connectionId).toMutableMap()
+            all["${panel.id}"]?.let { rt ->
+                all["${panel.id}"] = rt.copy(history = emptyList(), fetchedAt = 0L, period = period)
+            }
+            repository.saveRuntimeValues(connectionId, all)
+            withContext(Dispatchers.Main) {
+                widgetAdapter.clearHistory(panel.id)
+                widgetAdapter.updatePanelMeta(updated)
+            }
+            reloadPanelHistory(updated)
+        }
+    }
+
+    /** История одной карточки после смены периода: один запрос, ошибка — тостом */
+    private fun reloadPanelHistory(panel: Panel) {
+        val connection = loadedConnection ?: return
+        val sensorId = panel.topicSubscribe.toIntOrNull() ?: return
+        val period = panel.historyPeriod ?: "day"
+        lifecycleScope.launch {
+            val result = runCatching {
+                NarodmonApi.sensorsHistory(applicationContext, connection.apiKey, sensorId, period)
+            }
+            val points = result.getOrNull().orEmpty()
+            if (points.isEmpty()) {
+                val why = result.exceptionOrNull()?.message?.take(160) ?: "нет данных"
+                Toast.makeText(this@DashboardActivity,
+                    getString(R.string.history_unavailable, why), Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
+            }
+            val all = repository.loadRuntimeValues(connectionId).toMutableMap()
+            all["${panel.id}"] = (all["${panel.id}"]
+                ?: AppRepository.RuntimeValue()).copy(
+                fetchedAt = System.currentTimeMillis(),
+                period = period,
+                history = points.map { listOf(it.t.toDouble(), it.v.toDouble()) }
+            )
+            repository.saveRuntimeValues(connectionId, all)
+        }
+    }
+
+    /**
      * «Добавить все датчики разом»: для каждого датчика аккаунта, у которого
      * ещё нет панели, создаётся карточка Значение (ед. измерения — от платформы).
      */
@@ -928,11 +983,12 @@ class DashboardActivity : AppCompatActivity() {
 
     /** Выбор периода истории Народмона: Сутки / Неделя / Месяц */
     private fun setupHistoryPeriod(root: View, panel: Panel) {
-        val periods = listOf("day", "week", "month")
+        val periods = listOf("day", "week", "month", "year")
         val labels = listOf(
             getString(R.string.period_day),
             getString(R.string.period_week),
-            getString(R.string.period_month)
+            getString(R.string.period_month),
+            getString(R.string.period_year)
         )
         val et = root.findViewById<EditText>(R.id.et_history_period)
         val current = periods.indexOf(panel.historyPeriod).takeIf { it >= 0 } ?: 0
@@ -986,9 +1042,11 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<View>(R.id.layout_color_range).visibility =
             if (type == WidgetType.VALUE || type == WidgetType.TEXT || type == WidgetType.CHART || progress)
                 View.VISIBLE else View.GONE
-        // Диапазон Мин/Макс нужен слайдеру, динамическому цвету и полосе прогресса
+        // Диапазон Мин/Макс нужен слайдеру, динамическому цвету и полосе прогресса;
+        // у графиков он задаёт масштаб раскраски линии/точек (без него дефолт 0..100)
         root.findViewById<View>(R.id.layout_slider).visibility =
-            if (type == WidgetType.SLIDER || type == WidgetType.VALUE || type == WidgetType.TEXT || progress)
+            if (type == WidgetType.SLIDER || type == WidgetType.VALUE || type == WidgetType.TEXT ||
+                type == WidgetType.CHART || type == WidgetType.MULTI_CHART || progress)
                 View.VISIBLE else View.GONE
         // Единицы измерения имеют смысл только там, где значение показывают числом/текстом
         val unitVisible =

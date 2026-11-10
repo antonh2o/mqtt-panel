@@ -95,6 +95,7 @@
     <string name="log_saved_to">Log: %1$s</string>
     <string name="share_log">Send log</string>
     <string name="log_empty">Log is empty</string>
+    <string name="history_unavailable">History unavailable: %1$s</string>
     <string name="menu_log">Export log</string>
     <string name="unknown_connection">Unknown connection</string>
     <string name="select_connection">Select connection</string>
@@ -147,6 +148,7 @@
     <string name="period_day">Day</string>
     <string name="period_week">Week</string>
     <string name="period_month">Month</string>
+    <string name="period_year">Year</string>
     <string name="check_updates">Check for updates</string>
     <string name="update_latest">You are on the latest version</string>
     <string name="update_available">Version %1$s is available — download?</string>

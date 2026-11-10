@@ -95,6 +95,7 @@
     <string name="log_saved_to">Журнал: %1$s</string>
     <string name="share_log">Отправить журнал</string>
     <string name="log_empty">Журнал пуст</string>
+    <string name="history_unavailable">История не получена: %1$s</string>
     <string name="menu_log">Экспорт журнала</string>
     <string name="unknown_connection">Неизвестное подключение</string>
     <string name="select_connection">Выберите подключение</string>
@@ -147,6 +148,7 @@
     <string name="period_day">Сутки</string>
     <string name="period_week">Неделя</string>
     <string name="period_month">Месяц</string>
+    <string name="period_year">Год</string>
     <string name="check_updates">Проверить обновления</string>
     <string name="update_latest">У вас последняя версия</string>
     <string name="update_available">Доступна версия %1$s — скачать?</string>

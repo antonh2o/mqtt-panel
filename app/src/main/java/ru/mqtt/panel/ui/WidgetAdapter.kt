@@ -161,6 +161,22 @@ class WidgetAdapter(
         if (idx >= 0) notifyItemChanged(idx)
     }
 
+    /** Очистить кэш истории графика — смена периода карточки (1d↔1w↔1m↔1y) */
+    fun clearHistory(panelId: Long) {
+        chartHistory.remove(panelId)
+        val idx = items.indexOfFirst { it.id == panelId }
+        if (idx >= 0) notifyItemChanged(idx)
+    }
+
+    /** Обновить метаданные панели (период и настройки) с сохранением значений */
+    fun updatePanelMeta(updated: Panel) {
+        val idx = items.indexOfFirst { it.id == updated.id }
+        if (idx >= 0) {
+            items[idx] = updated.copy(lastValue = items[idx].lastValue, lastTime = items[idx].lastTime)
+            notifyItemChanged(idx)
+        }
+    }
+
     /**
      * Снимок последних значений и историй графиков — для сохранения в
      * runtime-файл (мгновенный показ при следующем открытии дашборда).
