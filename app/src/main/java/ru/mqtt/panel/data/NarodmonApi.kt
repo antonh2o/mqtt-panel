@@ -91,13 +91,15 @@ object NarodmonApi {
 
     /**
      * Логин не чаще раза в сутки — открывает доступ к приватным датчикам.
+     * force=true — войти независимо от отметки времени (слетевшая сессия).
      * Пустые ключ/логин/пароль — публичные датчики, пропускаем.
      */
-    suspend fun ensureLogon(context: Context, apiKey: String, login: String, password: String) {
+    suspend fun ensureLogon(context: Context, apiKey: String, login: String, password: String,
+                            force: Boolean = false) {
         if (apiKey.isBlank() || login.isBlank() || password.isBlank()) return
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val last = prefs.getLong(KEY_LOGON_AT, 0L)
-        if (System.currentTimeMillis() - last < 24 * 3600_000L) return
+        if (!force && System.currentTimeMillis() - last < 24 * 3600_000L) return
         val u = uuid(context)
         val body = gson.toJson(
             mapOf("login" to login, "hash" to loginHash(u, password), "uuid" to u)

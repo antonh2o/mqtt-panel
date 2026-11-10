@@ -143,21 +143,36 @@ class NarodmonService : Service() {
                 // один запрос на все свои датчики: sensorsNearby?my=1
                 // (sensorsValues на 06.11.2026 отдаёт 410 Gone — см. NarodmonApi)
                 val sensors = NarodmonApi.fetchOwnSensors(applicationContext, conn.apiKey)
-                connectedAt = System.currentTimeMillis()
-                connectionState = ConnectionState.CONNECTED
-                backoff = 1
-                broadcastStatus(ConnectionState.CONNECTED)
-                val lm = LocalBroadcastManager.getInstance(this@NarodmonService)
-                sensors.forEach { s ->
-                    val payload = NarodmonApi.fmt(s.value!!)
-                    // время платформы (сек) идёт в график: точки встают на шкалу времени
-                    val timeMs = if (s.time > 0) s.time * 1000L else System.currentTimeMillis()
-                    // Реестр тем сканера не пишем: датчики выбираются списком, не сканом
-                    lm.sendBroadcast(Intent(MqttService.BROADCAST_MESSAGE).apply {
-                        putExtra(MqttService.EXTRA_MESSAGE_TOPIC, s.id.toString())
-                        putExtra(MqttService.EXTRA_MESSAGE_PAYLOAD, payload)
-                        putExtra(MqttService.EXTRA_MESSAGE_TIME, timeMs)
-                    })
+                deliver(conn, sensors)
+            } catch (e: NarodmonApi.AuthRequiredException) {
+                // 401 «Авторизуйтесь»: сессия слетела на платформе (её сбрасывают,
+                // например, при создании нового API-ключа). ensureLogon при старте
+                // сервиса throttle'ится раз в сутки и тут уже не сработает —
+                // нужен форс-логин, не чаще раза в 5 минут: неверный пароль
+                // не должен сжигать попытки входа каждый опрос.
+                val canLogon = conn.username.isNotBlank() && conn.password.isNotBlank()
+                if (!canLogon) {
+                    ImportLog.write(applicationContext,
+                        "NARODMON poll: 401 «${e.message}» — заполните логин/пароль аккаунта в подключении")
+                    connectionState = ConnectionState.CONNECTING
+                    broadcastStatus(ConnectionState.CONNECTING)
+                } else {
+                    val relogged = System.currentTimeMillis() - lastForceLogon > 5 * 60_000L &&
+                        runCatching {
+                            lastForceLogon = System.currentTimeMillis()
+                            NarodmonApi.ensureLogon(applicationContext, conn.apiKey,
+                                conn.username, conn.password, force = true)
+                        }.isSuccess
+                    if (relogged) {
+                        ImportLog.write(applicationContext,
+                            "NARODMON poll: 401 — сессия слетела, повторный userLogon ok, пробую снова")
+                        deliver(conn, NarodmonApi.fetchOwnSensors(applicationContext, conn.apiKey))
+                    } else {
+                        ImportLog.write(applicationContext,
+                            "NARODMON poll failed: ${e.javaClass.simpleName}: ${e.message} (повторный логин отложен/не удался)")
+                        connectionState = ConnectionState.CONNECTING
+                        broadcastStatus(ConnectionState.CONNECTING)
+                    }
                 }
             } catch (e: NarodmonApi.RateLimitException) {
                 backoff = (backoff * 2).coerceAtMost(10)
@@ -174,6 +189,29 @@ class NarodmonService : Service() {
             } finally {
                 polling.set(false)
             }
+        }
+    }
+
+    /** Время последней попытки форс-логина — троттлинг повторных входов при 401 */
+    private var lastForceLogon = 0L
+
+    /** Разослать значения датчиков: общий код первого опроса и повтора после релогина */
+    private fun deliver(conn: MqttConnection, sensors: List<NarodmonApi.NmSensor>) {
+        connectedAt = System.currentTimeMillis()
+        connectionState = ConnectionState.CONNECTED
+        backoff = 1
+        broadcastStatus(ConnectionState.CONNECTED)
+        val lm = LocalBroadcastManager.getInstance(this@NarodmonService)
+        sensors.forEach { s ->
+            val payload = NarodmonApi.fmt(s.value!!)
+            // время платформы (сек) идёт в график: точки встают на шкалу времени
+            val timeMs = if (s.time > 0) s.time * 1000L else System.currentTimeMillis()
+            // Реестр тем сканера не пишем: датчики выбираются списком, не сканом
+            lm.sendBroadcast(Intent(MqttService.BROADCAST_MESSAGE).apply {
+                putExtra(MqttService.EXTRA_MESSAGE_TOPIC, s.id.toString())
+                putExtra(MqttService.EXTRA_MESSAGE_PAYLOAD, payload)
+                putExtra(MqttService.EXTRA_MESSAGE_TIME, timeMs)
+            })
         }
     }
 
