@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  api.narodmon.ru разрешён cleartext (HTTP): некоторые сети (в т.ч. мобильные
-  операторы) блокируют 443 до этого хоста, и HTTPS→HTTP fallback NarodmonApi —
-  единственный рабочий путь. Остальной трафик остаётся только HTTPS.
+  Cleartext разрешён осознанно: (1) api.narodmon.ru — некоторые сети (в т.ч.
+  мобильные операторы) блокируют 443 до него, HTTPS→HTTP fallback NarodmonApi —
+  единственный рабочий путь; (2) Grafana дома часто живёт на http://192.168.x.x —
+  адрес пользователь вводит в настройках, домен нельзя добавить в рантайме.
+  У MQTT-подключений открытый TCP и раньше не ограничивался этой политикой.
+  HTTPS остаётся рекомендуемым путём (домен + reverse proxy).
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">api.narodmon.ru</domain>
-    </domain-config>
 </network-security-config>

@@ -45,4 +45,9 @@
         android:title="@string/share_log"
         app:showAsAction="never" />
 
+    <item
+        android:id="@+id/action_grafana_settings"
+        android:title="@string/grafana_settings"
+        app:showAsAction="never" />
+
 </menu>

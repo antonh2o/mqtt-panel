@@ -112,7 +112,12 @@ class AppRepository(private val context: Context) {
                 // («Сутки») — редактор писал её при сохранении без выбора периода
                 historyPeriod = it.historyPeriod?.takeIf { p ->
                     p == "day" || p == "week" || p == "month" || p == "year"
-                } ?: "day"
+                } ?: "day",
+                // Gson не вызывает конструктор: в конфигах до 0.2.51 gh-полей нет,
+                // физически null — это штатно; чистим только пустые строки
+                ghMeasurement = it.ghMeasurement?.trim()?.takeIf { m -> m.isNotEmpty() },
+                ghField = it.ghField?.trim()?.takeIf { f -> f.isNotEmpty() },
+                ghTagKey = it.ghTagKey?.trim()?.takeIf { t -> t.isNotEmpty() }
             )
         }
         return AppConfig(fixedConnections2, fixedPanels)

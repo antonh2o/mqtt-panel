@@ -62,8 +62,14 @@ data class Panel(
     var colorMin: String = "",
     var colorMid: String = "",
     var colorMax: String = "",
-    // период истории графика Народмона: day / week / month
+    // период истории графика Народмона: day / week / month / year
     var historyPeriod: String? = "day",
+    // История из Grafana (живые точки при этом остаются из MQTT): mapping
+    // MQTT-топика на InfluxDB. Пустое ghMeasurement = выключено.
+    // Значение тега — тема подписки (для мультиграфика — topic серии).
+    var ghMeasurement: String? = null,
+    var ghField: String? = null,
+    var ghTagKey: String? = null,
     // время последнего принятого значения (runtime: в конфиг не пишется,
     // хранится в runtime-<id>.json вместе с историей графиков)
     var lastTime: Long = 0,

@@ -96,6 +96,22 @@
     <string name="share_log">Send log</string>
     <string name="log_empty">Log is empty</string>
     <string name="history_unavailable">History unavailable: %1$s</string>
+    <string name="grafana_settings">Grafana settings</string>
+    <string name="grafana_url_hint">Grafana URL (https://grafana.dom or http://192.168.1.10:3000)</string>
+    <string name="grafana_user_hint">Grafana login</string>
+    <string name="grafana_pass_hint">Grafana password</string>
+    <string name="grafana_uid_hint">Datasource UID</string>
+    <string name="grafana_uid_help">UID: Grafana → Connections → your InfluxDB → UID is in the datasource page URL</string>
+    <string name="grafana_check">Test connection</string>
+    <string name="grafana_checking">Checking Grafana…</string>
+    <string name="grafana_ok">Connected: Grafana %1$s</string>
+    <string name="grafana_fail">Failed: %1$s</string>
+    <string name="grafana_need_url">Enter Grafana URL</string>
+    <string name="grafana_history">History from Grafana (InfluxDB)</string>
+    <string name="gh_measurement">Measurement</string>
+    <string name="gh_field">Field</string>
+    <string name="gh_tag">Tag</string>
+    <string name="gh_hint">Live points still come from MQTT; tag value = subscribe topic (series use their own topics). Server settings: ⋮ → “Grafana settings”</string>
     <string name="menu_log">Export log</string>
     <string name="unknown_connection">Unknown connection</string>
     <string name="select_connection">Select connection</string>

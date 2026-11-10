@@ -96,6 +96,22 @@
     <string name="share_log">Отправить журнал</string>
     <string name="log_empty">Журнал пуст</string>
     <string name="history_unavailable">История не получена: %1$s</string>
+    <string name="grafana_settings">Настройки Grafana</string>
+    <string name="grafana_url_hint">Адрес Grafana (https://grafana.dom или http://192.168.1.10:3000)</string>
+    <string name="grafana_user_hint">Логин Grafana</string>
+    <string name="grafana_pass_hint">Пароль Grafana</string>
+    <string name="grafana_uid_hint">Datasource UID</string>
+    <string name="grafana_uid_help">UID: Grafana → Connections → ваш InfluxDB → UID виден в адресной строке страницы datasource</string>
+    <string name="grafana_check">Проверить подключение</string>
+    <string name="grafana_checking">Проверяю Grafana…</string>
+    <string name="grafana_ok">Подключено: Grafana %1$s</string>
+    <string name="grafana_fail">Не подключилось: %1$s</string>
+    <string name="grafana_need_url">Укажите адрес Grafana</string>
+    <string name="grafana_history">История из Grafana (InfluxDB)</string>
+    <string name="gh_measurement">Measurement</string>
+    <string name="gh_field">Поле (field)</string>
+    <string name="gh_tag">Тег</string>
+    <string name="gh_hint">Живые точки остаются из MQTT; значение тега = тема подписки (у серий — их темы). Настройки сервера: ⋮ → «Настройки Grafana»</string>
     <string name="menu_log">Экспорт журнала</string>
     <string name="unknown_connection">Неизвестное подключение</string>
     <string name="select_connection">Выберите подключение</string>

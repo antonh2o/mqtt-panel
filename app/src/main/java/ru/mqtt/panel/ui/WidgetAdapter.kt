@@ -124,7 +124,11 @@ class WidgetAdapter(
                 val v = d.toFloat()
                 val history = chartHistory.getOrPut(panel.id) { mutableListOf() }
                 history.add(ChartView.TimePoint(time, v))
-                while (history.size > panel.chartPoints) history.removeFirst()
+                // История из Grafana/Narodmon (до 500 точек) не должна вытесняться
+                // живыми точками: потолок — большее из chartPoints и текущего размера
+                while (history.size > maxOf(panel.chartPoints, minOf(history.size, 500))) {
+                    history.removeFirst()
+                }
             }
         }
     }
@@ -137,7 +141,9 @@ class WidgetAdapter(
             val v = d.toFloat()
             val history = chartMultiHistory.getOrPut("${panel.id}:$seriesIndex") { mutableListOf() }
             history.add(ChartView.TimePoint(time, v))
-            while (history.size > panel.chartPoints) history.removeAt(0)
+            while (history.size > maxOf(panel.chartPoints, minOf(history.size, 500))) {
+                history.removeAt(0)
+            }
         }
     }
 
@@ -164,6 +170,29 @@ class WidgetAdapter(
     /** Очистить кэш истории графика — смена периода карточки (1d↔1w↔1m↔1y) */
     fun clearHistory(panelId: Long) {
         chartHistory.remove(panelId)
+        val idx = items.indexOfFirst { it.id == panelId }
+        if (idx >= 0) notifyItemChanged(idx)
+    }
+
+    /** Очистить кэш истории всех серий мультиграфика (смена периода) */
+    fun clearMultiHistory(panelId: Long) {
+        chartMultiHistory.keys.removeAll { it.substringBefore(':').toLongOrNull() == panelId }
+        val idx = items.indexOfFirst { it.id == panelId }
+        if (idx >= 0) notifyItemChanged(idx)
+    }
+
+    /** Дописать историю серии мультиграфика из Grafana ПЕРЕД live-точками */
+    fun prependMultiHistory(
+        panelId: Long, seriesIndex: Int, pts: List<ChartView.TimePoint>, cap: Int = 500
+    ) {
+        if (pts.isEmpty()) return
+        val key = "$panelId:$seriesIndex"
+        val merged = (pts + (chartMultiHistory[key] ?: mutableListOf()))
+            .distinctBy { it.t }
+            .sortedBy { it.t }
+            .toMutableList()
+        while (merged.size > cap) merged.removeFirst()
+        chartMultiHistory[key] = merged
         val idx = items.indexOfFirst { it.id == panelId }
         if (idx >= 0) notifyItemChanged(idx)
     }
@@ -519,10 +548,11 @@ class WidgetAdapter(
             bindPeriodChips(panel)
         }
 
-        /** Чипы периода «1d 1w 1m 1y» — только на narodmon-графиках */
+        /** Чипы периода «1d 1w 1m 1y» — narodmon-графики и MQTT-графики с историей из Grafana */
         private fun bindPeriodChips(panel: Panel) {
             val row = periodChips ?: return
-            if (panel.source != "narodmon") {
+            val grafanaHistory = !panel.ghMeasurement.isNullOrBlank()
+            if (panel.source != "narodmon" && !grafanaHistory) {
                 row.visibility = View.GONE
                 return
             }
@@ -588,6 +618,7 @@ class WidgetAdapter(
             // Тема карточки не одна — список тем виден в легенде
             tvTopic?.visibility = View.GONE
             buildLegend(panel)
+            bindPeriodChips(panel)
         }
 
         private fun buildLegend(panel: Panel) {
