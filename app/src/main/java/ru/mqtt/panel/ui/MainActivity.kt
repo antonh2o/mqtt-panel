@@ -141,18 +141,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
-        when (item.itemId) {
-            R.id.action_check_updates -> checkForUpdates(manual = true)
-            R.id.action_ya_backup -> yandexBackup()
-            R.id.action_ya_restore -> yandexRestore()
-            R.id.action_ya_settings -> yandexSettings()
-            else -> return super.onOptionsItemSelected(item)
-        }
-        return true
+        // Тема — через ThemePrefs (пересоздаёт активности), остальные —
+        // и сразу return: у них нет продолжения после when
         val mode = when (item.itemId) {
             R.id.action_theme_light -> ThemePrefs.LIGHT
             R.id.action_theme_dark -> ThemePrefs.DARK
             R.id.action_theme_auto -> ThemePrefs.SYSTEM
+            R.id.action_check_updates -> { checkForUpdates(manual = true); return true }
+            R.id.action_ya_backup -> { yandexBackup(); return true }
+            R.id.action_ya_restore -> { yandexRestore(); return true }
+            R.id.action_ya_settings -> { yandexSettings(); return true }
             else -> return super.onOptionsItemSelected(item)
         }
         ThemePrefs.save(this, mode)
