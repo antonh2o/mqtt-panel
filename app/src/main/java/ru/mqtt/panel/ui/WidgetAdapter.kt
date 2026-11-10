@@ -385,30 +385,27 @@ class WidgetAdapter(
             bar?.max = 10000
             if (v == null) {
                 bar?.progress = 0
-            } else if (v < min) {
-                // ниже Мин — полоса полностью в цвете минимума
-                bar?.progress = 10000
-                vertical?.fraction = 1f
-                horizontal?.fraction = 1f
-                ColorRange.resolve(panel.colorMin, panel.colorMid, panel.colorMax, min, max, min)
-                    ?.let { c ->
-                        bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
-                        vertical?.fillColor = c
-                        horizontal?.fillColor = c
-                    }
+                vertical?.belowRange = false
+                horizontal?.belowRange = false
             } else {
-                // значение ниже Мин — полоса полностью в цвете минимума,
-                // выше Макс — в цвете максимума (как в IoT MQTT Panel)
-                val f = ((v - min) / (max - min)).coerceIn(0.0, 1.0)
+                // ниже Мин — «бубышка» цветом минимума (полная полоса
+                // читалась бы как «много»); выше Макс — полная в цвете
+                // максимума; в диапазоне — доля значения, цвет по значению
+                val below = v < min
+                val f = if (below) 0.0 else ((v - min) / (max - min)).coerceIn(0.0, 1.0)
                 bar?.progress = (f * 10000).toInt()
                 vertical?.fraction = f.toFloat()
+                vertical?.belowRange = below
                 horizontal?.fraction = f.toFloat()
-                ColorRange.resolve(panel.colorMin, panel.colorMid, panel.colorMax, min, max, v)
-                    ?.let { c ->
-                        bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
-                        vertical?.fillColor = c
-                        horizontal?.fillColor = c
-                    }
+                horizontal?.belowRange = below
+                ColorRange.resolve(
+                    panel.colorMin, panel.colorMid, panel.colorMax,
+                    min, max, if (below) min else v
+                )?.let { c ->
+                    bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
+                    vertical?.fillColor = c
+                    horizontal?.fillColor = c
+                }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
         }

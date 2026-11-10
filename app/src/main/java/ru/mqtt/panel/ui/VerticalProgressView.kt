@@ -30,6 +30,18 @@ class VerticalProgressView @JvmOverloads constructor(
     var fillColor: Int = Color.parseColor("#4CAF50")
         set(value) {
             field = value
+            fillPaint.color = value
+            invalidate()
+        }
+
+    /**
+     * Значение ниже Мин диапазона: вместо полного заполнения рисуется
+     * «бубышка» цветом минимума — виден и факт «почти ноль», и цвет
+     * «ниже диапазона». Полная полоса здесь читалась бы как «много».
+     */
+    var belowRange: Boolean = false
+        set(value) {
+            field = value
             invalidate()
         }
 
@@ -53,6 +65,12 @@ class VerticalProgressView @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
         canvas.drawRoundRect(inset, inset, w - inset, h - inset, corner, corner, trackPaint)
+        if (belowRange) {
+            // значение ниже Мин — «бубышка» цветом минимума
+            val nub = w - inset * 2
+            canvas.drawRoundRect(inset, h - inset - nub, w - inset, h - inset, corner, corner, fillPaint)
+            return
+        }
         val fillH = (h - inset * 2) * max(fraction, 0f)
         if (fillH > 0f) {
             // даже при доле ~0% рисуем «бубышку» высотой с ширину полосы —
