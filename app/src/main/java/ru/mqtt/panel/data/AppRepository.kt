@@ -289,7 +289,15 @@ class AppRepository(private val context: Context) {
             val config: AppConfig = gson.fromJson(json, type) ?: return@withContext false
             // Проверяем минимальную валидность
             if (config.connections.any { it.host.isBlank() }) return@withContext false
-            save(config.fixIds())
+            val fixed = config.fixIds()
+            // При восстановлении clientId у всех MQTT-подключений ОБЯЗАТЕЛЬНО
+            // меняются на новые: одна и та же резервная копия может разворачиваться
+            // на нескольких устройствах — одинаковый id заставляет брокера рвать
+            // сессии (флап «подключён/отключён»)
+            ImportLog.write(context,
+                "Восстановление: подключений ${fixed.connections.size}, " +
+                "clientId обновлены у ${fixed.connections.count { !it.narodmon }} MQTT")
+            save(fixed)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Import error", e)
