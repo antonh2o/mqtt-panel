@@ -4,9 +4,12 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 
 **Текущая версия:** 0.2.53 · minSdk 24 (Android 7.0) · Kotlin · Eclipse Paho 1.2.5
 
-| Дашборд с живыми данными · мультиграфик с легендой · динамический цвет · тёмная тема |
+| Главный экран: типы подключений (MQTT / MQTT + Grafana / Narodmon) | Квартира: живые точки из MQTT + история из Grafana |
 |---|
-| <img src="screenshots/mqtt-dashboard.png" width="49%"> <img src="screenshots/narodmon-charts.png" width="49%"> |
+| <img src="screenshots/main-screen.png" width="49%"> <img src="screenshots/kvartira.png" width="49%"> |
+| Народмон: график 1d — сутки | Народмон: чип 1w — шкала времени в датах |
+| <img src="screenshots/narodmon-1d.png" width="49%"> <img src="screenshots/narodmon-1w.png" width="49%"> |
+| Мультиграфик с легендой · динамический цвет · тёмная тема · редакторы |
 | <img src="screenshots/multigraph.png" width="49%"> <img src="screenshots/dark-theme.png" width="49%"> |
 | <img src="screenshots/color-range-editor.png" width="49%"> <img src="screenshots/multigraph-editor.png" width="49%"> |
 
