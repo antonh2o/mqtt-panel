@@ -93,8 +93,20 @@ class AppRepository(private val context: Context) {
                 clientId = "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
             )
         }
+        // Grafana-поля подключения (0.2.51+): чистим пустые строки
+        val fixedConnectionsGh = fixedConnections2.map {
+            it.copy(
+                ghUrl = it.ghUrl?.trim()?.takeIf { u -> u.isNotEmpty() },
+                ghUser = it.ghUser?.trim(),
+                ghPass = it.ghPass,
+                ghDsUid = it.ghDsUid?.trim()?.takeIf { u -> u.isNotEmpty() },
+                ghMeasurement = it.ghMeasurement?.trim()?.takeIf { m -> m.isNotEmpty() },
+                ghField = it.ghField?.trim()?.takeIf { f -> f.isNotEmpty() },
+                ghTagKey = it.ghTagKey?.trim()?.takeIf { t -> t.isNotEmpty() }
+            )
+        }
         var pid = 0L
-        val oldToNew = connections.mapIndexed { i, c -> c.id to fixedConnections2[i].id }.toMap()
+        val oldToNew = connections.mapIndexed { i, c -> c.id to fixedConnectionsGh[i].id }.toMap()
         val fixedPanels = panels.map {
             it.copy(
                 id = ++pid,
@@ -113,14 +125,9 @@ class AppRepository(private val context: Context) {
                 historyPeriod = it.historyPeriod?.takeIf { p ->
                     p == "day" || p == "week" || p == "month" || p == "year"
                 } ?: "day",
-                // Gson не вызывает конструктор: в конфигах до 0.2.51 gh-полей нет,
-                // физически null — это штатно; чистим только пустые строки
-                ghMeasurement = it.ghMeasurement?.trim()?.takeIf { m -> m.isNotEmpty() },
-                ghField = it.ghField?.trim()?.takeIf { f -> f.isNotEmpty() },
-                ghTagKey = it.ghTagKey?.trim()?.takeIf { t -> t.isNotEmpty() }
             )
         }
-        return AppConfig(fixedConnections2, fixedPanels)
+        return AppConfig(fixedConnectionsGh, fixedPanels)
     }
 
     suspend fun getConnections(): List<MqttConnection> = withContext(Dispatchers.IO) {

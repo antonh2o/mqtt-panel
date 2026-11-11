@@ -116,7 +116,11 @@
     <string name="grafana_checking">Checking Grafana…</string>
     <string name="grafana_ok">Connected: Grafana %1$s</string>
     <string name="grafana_fail">Failed: %1$s</string>
-    <string name="grafana_need_url">Enter Grafana URL</string>
+    <string name="grafana_need_url">Enable Grafana in connection settings</string>
+    <string name="grafana_status_connected_plain">Grafana: connected</string>
+    <string name="grafana_status_connected">Grafana: connected (%1$s)</string>
+    <string name="grafana_status_error">Grafana: %1$s</string>
+    <string name="gh_hint_conn">Live points still come from MQTT; tag value = subscribe topic (multichart series use their own topics). Applies to all charts of this connection.</string>
     <string name="grafana_history">History from Grafana (InfluxDB)</string>
     <string name="gh_measurement">Measurement</string>
     <string name="gh_field">Field</string>

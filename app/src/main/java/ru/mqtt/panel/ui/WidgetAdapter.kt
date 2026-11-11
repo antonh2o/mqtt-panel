@@ -33,7 +33,9 @@ class WidgetAdapter(
     private val onPublish: (Panel, String) -> Unit,
     private val onDragStart: (RecyclerView.ViewHolder) -> Unit = {},
     /** смена периода истории на narodmon-карточке графика (чипы 1d/1w/1m/1y) */
-    var onChartPeriodSelected: ((Panel, String) -> Unit)? = null
+    var onChartPeriodSelected: ((Panel, String) -> Unit)? = null,
+    /** Подключения с включённой Grafana — у их графиков видны чипы периодов */
+    var grafanaConnectionIds: Set<Long> = emptySet()
 ) : RecyclerView.Adapter<WidgetAdapter.BaseHolder>() {
 
     private val items = mutableListOf<Panel>()
@@ -551,7 +553,7 @@ class WidgetAdapter(
         /** Чипы периода «1d 1w 1m 1y» — narodmon-графики и MQTT-графики с историей из Grafana */
         private fun bindPeriodChips(panel: Panel) {
             val row = periodChips ?: return
-            val grafanaHistory = !panel.ghMeasurement.isNullOrBlank()
+            val grafanaHistory = panel.connectionId in grafanaConnectionIds
             if (panel.source != "narodmon" && !grafanaHistory) {
                 row.visibility = View.GONE
                 return

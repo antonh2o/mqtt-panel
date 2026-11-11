@@ -478,7 +478,10 @@ class DashboardActivity : AppCompatActivity() {
             // Графики Народмона: подтянуть историю за сутки (пачками, с паузами
             // из-за лимита платформы), live-точки допишутся поверх
             if (connection.narodmon) loadNarodmonChartHistory(panels)
-            else loadGrafanaChartHistory(panels)
+            else if (connection.grafanaEnabled()) loadGrafanaChartHistory(panels)
+            // чипы периодов видны на всех графиках этого подключения
+            widgetAdapter.grafanaConnectionIds =
+                if (connection.grafanaEnabled()) setOf(connection.id) else emptySet()
 
             // У narodmon-подключения сканер топиков бессмыслен — прячем кнопку
             binding.btnScan.visibility = if (connection.narodmon) View.GONE else View.VISIBLE
@@ -546,7 +549,6 @@ class DashboardActivity : AppCompatActivity() {
         setupUnitPresets(root)
         setupColorRange(root, panel)
         setupHistoryPeriod(root, panel)
-        setupGrafanaHistory(root, panel)
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
             .isChecked = panel.showTime == true
         showTypeSections(root, panel.type)
@@ -594,7 +596,6 @@ class DashboardActivity : AppCompatActivity() {
             colorMin = "#2196F3", colorMid = "#4CAF50", colorMax = "#F44336"
         ))
         setupHistoryPeriod(root, panel = Panel(connectionId = connectionId))
-        setupGrafanaHistory(root, panel = Panel(connectionId = connectionId))
         root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_show_time)
             .isChecked = true
         showTypeSections(root, WidgetType.VALUE)
@@ -961,11 +962,11 @@ class DashboardActivity : AppCompatActivity() {
     /** История Grafana при открытии дашборда: пачкой, троттлинг 30 мин на карточку */
     private fun loadGrafanaChartHistory(panels: List<Panel>) {
         if (grafanaHistoryLoading) return
-        val settings = ru.mqtt.panel.data.GrafanaApi.credentials(applicationContext)
+        val settings = ru.mqtt.panel.data.GrafanaApi.settingsOf(loadedConnection ?: return)
         if (!settings.configured) return
+        // история общая на подключение — сразу все графики
         val targets = panels.filter {
-            (it.type == WidgetType.CHART || it.type == WidgetType.MULTI_CHART) &&
-                !it.ghMeasurement.isNullOrBlank()
+            it.type == WidgetType.CHART || it.type == WidgetType.MULTI_CHART
         }
         if (targets.isEmpty()) return
         grafanaHistoryLoading = true
@@ -983,7 +984,7 @@ class DashboardActivity : AppCompatActivity() {
                         }
                     else !rt?.history.isNullOrEmpty()
                     if (fresh && samePeriod && hasHistory) continue
-                    fetchAndApplyGrafanaHistory(panel, settings)
+                    fetchAndApplyGrafanaHistory(panel, loadedConnection ?: return@launch)
                     delay(300L) // не долбим Grafana пачкой мгновенно
                 }
             } finally {
@@ -997,12 +998,14 @@ class DashboardActivity : AppCompatActivity() {
      * ошибка — тостом. Возвращает текст ошибки или null при успехе.
      */
     private suspend fun fetchAndApplyGrafanaHistory(
-        panel: Panel, settings: ru.mqtt.panel.data.GrafanaApi.Settings
+        panel: Panel, conn: MqttConnection
     ): String? {
+        val settings = ru.mqtt.panel.data.GrafanaApi.settingsOf(conn)
         val period = panel.historyPeriod ?: "day"
-        val measurement = panel.ghMeasurement ?: return null
-        val field = panel.ghField ?: "value"
-        val tag = panel.ghTagKey ?: "topic"
+        // mapping общий на подключение — настраивается один раз в настройках подключения
+        val measurement = conn.ghMeasurement ?: return null
+        val field = conn.ghField ?: "value"
+        val tag = conn.ghTagKey ?: "topic"
         var firstError: String? = null
         if (panel.type == WidgetType.MULTI_CHART) {
             // по серии на запрос: значение тега = тема серии
@@ -1074,13 +1077,13 @@ class DashboardActivity : AppCompatActivity() {
 
     /** Чип периода на MQTT-графике с историей из Grafana */
     private fun reloadGrafanaHistory(panel: Panel) {
-        val settings = ru.mqtt.panel.data.GrafanaApi.credentials(applicationContext)
-        if (!settings.configured) {
+        val conn = loadedConnection ?: return
+        if (!conn.grafanaEnabled()) {
             Toast.makeText(this, R.string.grafana_need_url, Toast.LENGTH_LONG).show()
             return
         }
         lifecycleScope.launch {
-            val error = fetchAndApplyGrafanaHistory(panel, settings)
+            val error = fetchAndApplyGrafanaHistory(panel, conn)
             if (error != null) {
                 Toast.makeText(this@DashboardActivity,
                     getString(R.string.history_unavailable, error.take(160)), Toast.LENGTH_LONG).show()
@@ -1130,18 +1133,6 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /** Выбор периода истории Народмона: Сутки / Неделя / Месяц */
-    /** Секция «История из Grafana»: чекбокс + mapping топика на InfluxDB */
-    private fun setupGrafanaHistory(root: View, panel: Panel) {
-        val cb = root.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(R.id.cb_grafana)
-        val etM = root.findViewById<EditText>(R.id.et_gh_measurement)
-        val etF = root.findViewById<EditText>(R.id.et_gh_field)
-        val etT = root.findViewById<EditText>(R.id.et_gh_tag)
-        cb.isChecked = !panel.ghMeasurement.isNullOrBlank()
-        etM.setText(panel.ghMeasurement ?: "mqtt_consumer")
-        etF.setText(panel.ghField ?: "value")
-        etT.setText(panel.ghTagKey ?: "topic")
-    }
-
     private fun setupHistoryPeriod(root: View, panel: Panel) {
         val periods = listOf("day", "week", "month", "year")
         val labels = listOf(
@@ -1202,10 +1193,6 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<View>(R.id.layout_history_period).visibility =
             if (narodmon && type == WidgetType.CHART) View.VISIBLE else View.GONE
         val progress = type == WidgetType.PROGRESS_V || type == WidgetType.PROGRESS_H
-        val chartLike = type == WidgetType.CHART || type == WidgetType.MULTI_CHART
-        // История из Grafana — только у графиков (живые точки остаются из MQTT)
-        root.findViewById<View>(R.id.layout_grafana).visibility =
-            if (chartLike) View.VISIBLE else View.GONE
         // Динамический цвет значения/полосы прогресса — число, текст, график, прогресс
         root.findViewById<View>(R.id.layout_color_range).visibility =
             if (type == WidgetType.VALUE || type == WidgetType.TEXT || type == WidgetType.CHART || progress)
@@ -1442,16 +1429,7 @@ class DashboardActivity : AppCompatActivity() {
             colorMin = dotTag(root, R.id.dot_color_min),
             colorMid = dotTag(root, R.id.dot_color_mid),
             colorMax = dotTag(root, R.id.dot_color_max),
-            source = if (narodmon) "narodmon" else "mqtt",
-            // история из Grafana: включена, если чекбокс стоит и measurement задан
-            ghMeasurement = root.findViewById<android.widget.CheckBox>(R.id.cb_grafana)
-                .takeIf { it.isChecked }
-                ?.let { root.findViewById<EditText>(R.id.et_gh_measurement).text.toString().trim() }
-                ?.takeIf { it.isNotEmpty() },
-            ghField = root.findViewById<EditText>(R.id.et_gh_field).text.toString().trim()
-                .takeIf { it.isNotEmpty() },
-            ghTagKey = root.findViewById<EditText>(R.id.et_gh_tag).text.toString().trim()
-                .takeIf { it.isNotEmpty() }
+            source = if (narodmon) "narodmon" else "mqtt"
         )
         return if (panel.type == WidgetType.MULTI_CHART) {
             // у мультиграфика темы подписки — в сериях, общее поле не используется

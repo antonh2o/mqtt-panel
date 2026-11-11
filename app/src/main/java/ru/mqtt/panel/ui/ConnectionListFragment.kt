@@ -1,5 +1,6 @@
 package ru.mqtt.panel.ui
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -30,6 +31,9 @@ class ConnectionListFragment : Fragment() {
     private lateinit var adapter: ConnectionListAdapter
     private lateinit var repository: AppRepository
 
+    /** connectionId -> статус Grafana (заполняется фоновыми проверками) */
+    private val grafanaStatus = mutableMapOf<Long, String>()
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -54,24 +58,59 @@ class ConnectionListFragment : Fragment() {
         binding.btnAdd.setOnClickListener { editConnection(null) }
         binding.btnImport.setOnClickListener { showImportDialog() }
         binding.btnExport.setOnClickListener { showExportDialog() }
-        binding.cardGrafana.setOnClickListener {
-            (requireActivity() as? MainActivity)?.grafanaSettings()
-        }
+
+        migrateGrafanaPrefs()
     }
 
     override fun onResume() {
         super.onResume()
         loadConnections()
-        refreshGrafanaCard()
     }
 
-    /** Подзаголовок карточки Grafana: адрес сервера или приглашение настроить */
-    private fun refreshGrafanaCard() {
-        if (_binding == null) return
-        val cred = ru.mqtt.panel.data.GrafanaApi.credentials(requireContext().applicationContext)
-        binding.tvGrafanaStatus.text = if (cred.configured)
-            getString(R.string.grafana_card_configured, cred.url)
-        else getString(R.string.grafana_card_not_configured)
+    /**
+     * Разовая миграция: настройки Grafana из prefs (0.2.51–0.2.52, глобальные)
+     * переносятся в первое MQTT-подключение — теперь Grafана настраивается
+     * в самом подключении и связана с ним.
+     */
+    private fun migrateGrafanaPrefs() {
+        val prefs = requireContext().getSharedPreferences("grafana", Context.MODE_PRIVATE)
+        val url = prefs.getString("url", null)?.trim().orEmpty()
+        val uid = prefs.getString("dsUid", null)?.trim().orEmpty()
+        if (url.isEmpty() || uid.isEmpty()) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val target = repository.getConnections()
+                .firstOrNull { !it.narodmon && it.ghUrl.isNullOrBlank() } ?: return@launch
+            repository.updateConnection(target.copy(
+                ghUrl = url,
+                ghUser = prefs.getString("user", null).orEmpty(),
+                ghPass = prefs.getString("pass", null).orEmpty(),
+                ghDsUid = uid,
+                ghMeasurement = "mqtt_consumer",
+                ghField = "value",
+                ghTagKey = "topic"
+            ))
+            prefs.edit().clear().apply()
+            loadConnections()
+        }
+    }
+
+    /**
+     * Статус Grafana на карточках подключений: по умолчанию «подключено»,
+     * фоновый probe (GET /api/health) уточняет — версия или ошибка.
+     */
+    private fun probeGrafana(connections: List<MqttConnection>) {
+        connections.filter { it.grafanaEnabled() }.forEach { conn ->
+            viewLifecycleOwner.lifecycleScope.launch {
+                val text = runCatching {
+                    ru.mqtt.panel.data.GrafanaApi.probe(ru.mqtt.panel.data.GrafanaApi.settingsOf(conn))
+                }.fold(
+                    { v -> getString(R.string.grafana_status_connected, v) },
+                    { e -> getString(R.string.grafana_status_error, e.message ?: "ошибка") }
+                )
+                grafanaStatus[conn.id] = text
+                if (_binding != null) adapter.setGrafanaStatus(grafanaStatus.toMap())
+            }
+        }
     }
 
     /** Единая точка импорта: из файла или из Яндекс Диска */
@@ -121,6 +160,7 @@ class ConnectionListFragment : Fragment() {
                 if (connections.isEmpty()) View.GONE else View.VISIBLE
             binding.tvEmpty.visibility =
                 if (connections.isEmpty()) View.VISIBLE else View.GONE
+            probeGrafana(connections)
         }
     }
 
@@ -132,13 +172,34 @@ class ConnectionListFragment : Fragment() {
         val etHost = root.findViewById<EditText>(R.id.et_host)
 
         // Narodmon-подключение: MQTT-поля не нужны, учётные данные и API-ключ общие
+        val ghCb = root.findViewById<CheckBox>(R.id.cb_grafana_conn)
+        val layoutGh = root.findViewById<View>(R.id.layout_grafana_conn)
+        val etGhUrl = root.findViewById<EditText>(R.id.et_gh_url)
+        val etGhUser = root.findViewById<EditText>(R.id.et_gh_user)
+        val etGhPass = root.findViewById<EditText>(R.id.et_gh_pass)
+        val etGhUid = root.findViewById<EditText>(R.id.et_gh_uid)
+        val etGhM = root.findViewById<EditText>(R.id.et_gh_measurement)
+        val etGhF = root.findViewById<EditText>(R.id.et_gh_field)
+        val etGhT = root.findViewById<EditText>(R.id.et_gh_tag)
+
+        // Narodmon-подключение: MQTT-поля не нужны, учётные данные и API-ключ общие.
+        // Grafana с Народмоном не связывается — секция только у MQTT.
         fun applyNarodmonMode(checked: Boolean) {
             layoutMqtt.visibility = if (checked) View.GONE else View.VISIBLE
             root.findViewById<View>(R.id.layout_api_key).visibility =
                 if (checked) View.VISIBLE else View.GONE
+            layoutGh.visibility = if (checked) View.GONE else View.VISIBLE
             if (checked && etHost.text.isBlank()) etHost.setText("api.narodmon.ru")
         }
         cbNarodmon.setOnCheckedChangeListener { _, checked -> applyNarodmonMode(checked) }
+
+        // чекбокс Grafana раскрывает поля; при первом включении — дефолты telegraf
+        ghCb.setOnCheckedChangeListener { _, checked ->
+            layoutGh.visibility = if (checked && !cbNarodmon.isChecked) View.VISIBLE else View.GONE
+            if (checked && etGhM.text.isBlank()) {
+                etGhM.setText("mqtt_consumer"); etGhF.setText("value"); etGhT.setText("topic")
+            }
+        }
 
         if (conn != null) {
             root.findViewById<EditText>(R.id.et_name).setText(conn.name)
@@ -153,6 +214,14 @@ class ConnectionListFragment : Fragment() {
             root.findViewById<CheckBox>(R.id.cb_ssl).isChecked = conn.ssl
             root.findViewById<CheckBox>(R.id.cb_websocket).isChecked = conn.websocket
             root.findViewById<CheckBox>(R.id.cb_clean).isChecked = conn.cleanSession
+            ghCb.isChecked = conn.grafanaEnabled()
+            etGhUrl.setText(conn.ghUrl.orEmpty())
+            etGhUser.setText(conn.ghUser.orEmpty())
+            etGhPass.setText(conn.ghPass.orEmpty())
+            etGhUid.setText(conn.ghDsUid.orEmpty())
+            etGhM.setText(conn.ghMeasurement ?: "mqtt_consumer")
+            etGhF.setText(conn.ghField ?: "value")
+            etGhT.setText(conn.ghTagKey ?: "topic")
             applyNarodmonMode(conn.narodmon)
         } else {
             root.findViewById<EditText>(R.id.et_host).setText("broker.emqx.io")
@@ -179,6 +248,7 @@ class ConnectionListFragment : Fragment() {
                     Toast.makeText(requireContext(), R.string.narodmon_need_key, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
+                val ghOn = ghCb.isChecked && !isNarodmon
                 val defaultClientId = "mqttpanel-" + System.currentTimeMillis().toString(36)
                 val connection = MqttConnection(
                     id = conn?.id ?: 0,
@@ -193,7 +263,14 @@ class ConnectionListFragment : Fragment() {
                     cleanSession = root.findViewById<CheckBox>(R.id.cb_clean).isChecked,
                     clientId = root.findViewById<EditText>(R.id.et_client_id).text.toString().trim(),
                     narodmon = isNarodmon,
-                    apiKey = apiKey
+                    apiKey = apiKey,
+                    ghUrl = if (ghOn) etGhUrl.text.toString().trim().trimEnd('/') else null,
+                    ghUser = if (ghOn) etGhUser.text.toString().trim() else null,
+                    ghPass = if (ghOn) etGhPass.text.toString() else null,
+                    ghDsUid = if (ghOn) etGhUid.text.toString().trim() else null,
+                    ghMeasurement = if (ghOn) etGhM.text.toString().trim() else null,
+                    ghField = if (ghOn) etGhF.text.toString().trim() else null,
+                    ghTagKey = if (ghOn) etGhT.text.toString().trim() else null
                 )
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (conn == null) repository.addConnection(connection)

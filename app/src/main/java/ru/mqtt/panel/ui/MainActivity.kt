@@ -449,65 +449,6 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(intent, getString(R.string.share_log)))
     }
 
-    /**
-     * Настройки Grafana: адрес, basic auth, UID datasource. Живые значения
-     * карточек остаются из MQTT — Grafana нужна только для истории графиков.
-     */
-    fun grafanaSettings() {
-        val root = LayoutInflater.from(this)
-            .inflate(R.layout.dialog_grafana, null)
-        val etUrl = root.findViewById<android.widget.EditText>(R.id.et_grafana_url)
-        val etUser = root.findViewById<android.widget.EditText>(R.id.et_grafana_user)
-        val etPass = root.findViewById<android.widget.EditText>(R.id.et_grafana_pass)
-        val etUid = root.findViewById<android.widget.EditText>(R.id.et_grafana_uid)
-        val cred = ru.mqtt.panel.data.GrafanaApi.credentials(this)
-        etUrl.setText(cred.url)
-        etUser.setText(cred.user)
-        etPass.setText(cred.pass)
-        etUid.setText(cred.dsUid)
-
-        root.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_grafana_check)
-            .setOnClickListener {
-                val test = ru.mqtt.panel.data.GrafanaApi.Settings(
-                    etUrl.text.toString().trim().trimEnd('/'),
-                    etUser.text.toString().trim(),
-                    etPass.text.toString(),
-                    etUid.text.toString().trim()
-                )
-                if (test.url.isBlank()) {
-                    Toast.makeText(this, R.string.grafana_need_url, Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                Toast.makeText(this, R.string.grafana_checking, Toast.LENGTH_SHORT).show()
-                lifecycleScope.launch {
-                    val version = runCatching {
-                        ru.mqtt.panel.data.GrafanaApi.probe(test)
-                    }.getOrElse { e ->
-                        Toast.makeText(this@MainActivity,
-                            getString(R.string.grafana_fail, e.message), Toast.LENGTH_LONG).show()
-                        return@launch
-                    }
-                    Toast.makeText(this@MainActivity,
-                        getString(R.string.grafana_ok, version), Toast.LENGTH_LONG).show()
-                }
-            }
-
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.grafana_settings)
-            .setView(root)
-            .setPositiveButton(R.string.save) { _, _ ->
-                ru.mqtt.panel.data.GrafanaApi.saveCredentials(
-                    this,
-                    etUrl.text.toString().trim().trimEnd('/'),
-                    etUser.text.toString().trim(),
-                    etPass.text.toString(),
-                    etUid.text.toString().trim()
-                )
-            }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
-    }
-
     private fun refreshFragment() {
         supportFragmentManager.beginTransaction()
             .replace(R.id.fragment_container, ConnectionListFragment.newInstance())

@@ -23,10 +23,33 @@ data class MqttConnection(
     var narodmon: Boolean = false,
     // личный API-ключ narodmon.ru («Мои приложения»); у каждого пользователя свой,
     // лимит платформы считается на ключ и IP — поэтому в код приложения не зашит
-    var apiKey: String = ""
+    var apiKey: String = "",
+    // --- История из Grafana (только для MQTT-подключений): живые точки
+    // остаются из MQTT, история чипов 1d/1w/1m/1y тянется из InfluxDB
+    // через POST {ghUrl}/api/ds/query. Включено = ghUrl + ghDsUid +
+    // ghMeasurement непустые. Настраивается ОДИН раз на подключение и
+    // действует на все графики; значение тега = тема подписки/серии.
+    var ghUrl: String? = null,
+    var ghUser: String? = null,
+    var ghPass: String? = null,
+    var ghDsUid: String? = null,
+    var ghMeasurement: String? = null,
+    var ghField: String? = null,
+    var ghTagKey: String? = null
 ) : Serializable {
 
     constructor() : this(0)
+
+    /** Grafana включена для этого подключения */
+    fun grafanaEnabled(): Boolean =
+        !ghUrl.isNullOrBlank() && !ghDsUid.isNullOrBlank() && !ghMeasurement.isNullOrBlank()
+
+    /** Заголовок типа на главном экране: MQTT / MQTT + Grafana / Narodmon */
+    fun typeLabel(): String = when {
+        narodmon -> "Narodmon"
+        grafanaEnabled() -> "MQTT + Grafana"
+        else -> "MQTT"
+    }
 
     fun getScheme(): String {
         return when {

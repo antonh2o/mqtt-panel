@@ -116,7 +116,11 @@
     <string name="grafana_checking">Проверяю Grafana…</string>
     <string name="grafana_ok">Подключено: Grafana %1$s</string>
     <string name="grafana_fail">Не подключилось: %1$s</string>
-    <string name="grafana_need_url">Укажите адрес Grafana</string>
+    <string name="grafana_need_url">Включите Grafana в настройках подключения</string>
+    <string name="grafana_status_connected_plain">Grafana: подключено</string>
+    <string name="grafana_status_connected">Grafana: подключено (%1$s)</string>
+    <string name="grafana_status_error">Grafana: %1$s</string>
+    <string name="gh_hint_conn">Живые точки остаются из MQTT; значение тега = тема подписки (у серий мультиграфика — их темы). Действует на все графики этого подключения.</string>
     <string name="grafana_history">История из Grafana (InfluxDB)</string>
     <string name="gh_measurement">Measurement</string>
     <string name="gh_field">Поле (field)</string>

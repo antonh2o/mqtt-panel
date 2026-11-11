@@ -1,6 +1,5 @@
 package ru.mqtt.panel.data
 
-import android.content.Context
 import android.util.Base64
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +19,6 @@ import java.net.URL
  */
 object GrafanaApi {
 
-    private const val PREFS = "grafana"
     private const val USER_AGENT = "MQTT-Panel/0.2 (grafana history; Android)"
     private val gson = Gson()
 
@@ -33,24 +31,13 @@ object GrafanaApi {
         val configured: Boolean get() = url.isNotBlank() && dsUid.isNotBlank()
     }
 
-    fun credentials(context: Context): Settings {
-        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return Settings(
-            url = p.getString("url", null).orEmpty(),
-            user = p.getString("user", null).orEmpty(),
-            pass = p.getString("pass", null).orEmpty(),
-            dsUid = p.getString("dsUid", null).orEmpty()
-        )
-    }
-
-    fun saveCredentials(context: Context, url: String, user: String, pass: String, dsUid: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("url", url.trim().trimEnd('/'))
-            .putString("user", user.trim())
-            .putString("pass", pass)
-            .putString("dsUid", dsUid.trim())
-            .apply()
-    }
+    /** Настройки Grafana из MQTT-подключения (настраиваются один раз на подключение) */
+    fun settingsOf(conn: MqttConnection): Settings = Settings(
+        url = conn.ghUrl.orEmpty(),
+        user = conn.ghUser.orEmpty(),
+        pass = conn.ghPass.orEmpty(),
+        dsUid = conn.ghDsUid.orEmpty()
+    )
 
     /** Длительность периода чипов 1d/1w/1m/1y в мс */
     fun periodSpan(period: String): Long = when (period) {
