@@ -4,14 +4,22 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 
 **Текущая версия:** 0.2.53 · minSdk 24 (Android 7.0) · Kotlin · Eclipse Paho 1.2.5
 
-| Главный экран: типы подключений (MQTT / MQTT + Grafana / Narodmon) | Квартира: живые точки из MQTT + история из Grafana |
-|---|
-| <img src="screenshots/main-screen.png" width="49%"> <img src="screenshots/kvartira.png" width="49%"> |
-| Народмон: график 1d — сутки | Народмон: чип 1w — шкала времени в датах |
-| <img src="screenshots/narodmon-1d.png" width="49%"> <img src="screenshots/narodmon-1w.png" width="49%"> |
-| Мультиграфик с легендой · динамический цвет · тёмная тема · редакторы |
-| <img src="screenshots/multigraph.png" width="49%"> <img src="screenshots/dark-theme.png" width="49%"> |
-| <img src="screenshots/color-range-editor.png" width="49%"> <img src="screenshots/multigraph-editor.png" width="49%"> |
+**Главный экран · Квартира: MQTT / MQTT + Grafana / Narodmon**
+
+<p align="center"><img src="screenshots/screens-1.png" width="660"></p>
+
+**Народмон: чипы 1d / 1w — шкала времени в датах**
+
+<p align="center"><img src="screenshots/screens-2.png" width="660"></p>
+
+**Мультиграфик · динамический цвет · тёмная тема**
+
+<p align="center"><img src="screenshots/screens-3.png" width="660"></p>
+
+**Редакторы: цвет по значению · серии мультиграфика**
+
+<p align="center"><img src="screenshots/screens-4.png" width="660"></p>
+
 
 ## Возможности
 
