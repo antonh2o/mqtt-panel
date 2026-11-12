@@ -907,25 +907,11 @@ class DashboardActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val updated = panel.copy(historyPeriod = period)
             repository.updatePanel(updated)
-            val isMulti = updated.type == WidgetType.MULTI_CHART
-            val all = repository.loadRuntimeValues(connectionId).toMutableMap()
-            if (isMulti) {
-                updated.series.indices.forEach { i ->
-                    all["${updated.id}:$i"]?.let { rt ->
-                        all["${updated.id}:$i"] = rt.copy(history = emptyList(), fetchedAt = 0L, period = period)
-                    }
-                }
-            }
-            all["${updated.id}"]?.let { rt ->
-                all["${updated.id}"] = rt.copy(history = emptyList(), fetchedAt = 0L, period = period)
-            }
-            repository.saveRuntimeValues(connectionId, all)
-            withContext(Dispatchers.Main) {
-                widgetAdapter.clearHistory(panel.id)
-                if (isMulti) widgetAdapter.clearMultiHistory(panel.id)
-                widgetAdapter.updatePanelMeta(updated)
-                fullscreenChart?.setPeriod(period)
-            }
+            widgetAdapter.updatePanelMeta(updated)
+            fullscreenChart?.setPeriod(period)
+            // график НЕ очищаем заранее: при пустом результате за новый период
+            // остаётся прежняя кривая (скачок на пустой экран = «скачет экран»);
+            // старые точки замещаются только после успешной загрузки
             if (updated.source == "narodmon") reloadPanelHistory(updated)
             else reloadGrafanaHistory(updated)
         }
@@ -990,7 +976,7 @@ class DashboardActivity : AppCompatActivity() {
                         }
                     else !rt?.history.isNullOrEmpty()
                     if (fresh && samePeriod && hasHistory) continue
-                    fetchAndApplyGrafanaHistory(panel, loadedConnection ?: return@launch)
+                    fetchAndApplyGrafanaHistory(panel, loadedConnection ?: return@launch, replace = false)
                     delay(300L) // не долбим Grafana пачкой мгновенно
                 }
             } finally {
@@ -1004,7 +990,7 @@ class DashboardActivity : AppCompatActivity() {
      * ошибка — тостом. Возвращает текст ошибки или null при успехе.
      */
     private suspend fun fetchAndApplyGrafanaHistory(
-        panel: Panel, conn: MqttConnection
+        panel: Panel, conn: MqttConnection, replace: Boolean = false
     ): String? {
         val settings = ru.mqtt.panel.data.GrafanaApi.settingsOf(conn)
         val period = panel.historyPeriod ?: "day"
@@ -1035,6 +1021,7 @@ class DashboardActivity : AppCompatActivity() {
             ImportLog.write(applicationContext,
                 "GRAFANA ${panel.name}: период $period, серий с данными ${loaded.size}/$topics")
             withContext(Dispatchers.Main) {
+                if (replace) widgetAdapter.clearMultiHistory(panel.id)
                 loaded.forEach { (i, pts) ->
                     widgetAdapter.prependMultiHistory(panel.id, i, pts.map { ChartView.TimePoint(it.t, it.v) })
                 }
@@ -1122,7 +1109,7 @@ class DashboardActivity : AppCompatActivity() {
             return
         }
         lifecycleScope.launch {
-            val error = fetchAndApplyGrafanaHistory(panel, conn)
+            val error = fetchAndApplyGrafanaHistory(panel, conn, replace = true)
             if (error != null) {
                 Toast.makeText(this@DashboardActivity,
                     getString(R.string.history_unavailable, error.take(160)), Toast.LENGTH_LONG).show()

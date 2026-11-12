@@ -1,6 +1,9 @@
 <resources>
     <string name="app_name">MQTT+ Panel</string>
     <string name="title_connections">Подключения</string>
+    <string name="btn_add">Добавить</string>
+    <string name="btn_import">Импорт</string>
+    <string name="btn_export">Экспорт</string>
     <string name="add_connection">Добавить</string>
     <string name="edit_connection">Редактировать</string>
     <string name="delete_connection">Удалить</string>

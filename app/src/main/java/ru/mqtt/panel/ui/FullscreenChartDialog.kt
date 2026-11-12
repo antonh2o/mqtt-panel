@@ -109,7 +109,6 @@ class FullscreenChartDialog(
     }
 
     private fun applyData(single: List<ChartView.TimePoint>, multi: Map<Int, List<ChartView.TimePoint>>) {
-        chart.clear()
         chart.maxPoints = maxOf(
             panel.chartPoints,
             if (isMulti) (multi.values.maxOfOrNull { it.size } ?: 0) else single.size,
@@ -117,14 +116,14 @@ class FullscreenChartDialog(
         )
         chart.showScale = panel.chartShowScale
         if (isMulti) {
+            // атомарная замена точек — без промежуточной очистки (иначе «скачет»)
             panel.series.indices.forEach { i ->
-                multi[i]?.forEach { p -> chart.addMultiTimePoint(i, p.t, p.v) }
+                chart.setMultiPoints(i, multi[i].orEmpty())
             }
             buildLegend()
         } else {
             chart.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
-            single.forEach { chart.addTimePoint(it.t, it.v) }
-            legendRow.removeAllViews()
+            chart.setPoints(single)
         }
         // большое значение: цвет последней серии у мультиграфика, цвет линии у графика
         val valueColor = if (isMulti) {

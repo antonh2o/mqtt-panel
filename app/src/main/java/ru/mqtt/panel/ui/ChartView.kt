@@ -143,6 +143,31 @@ class ChartView @JvmOverloads constructor(
     }
 
     /** Точка с явным временем передачи (для истории из кэша и платформенных time) */
+    /** Атомарно заменить все точки первой серии (полноэкранный просмотр) */
+    fun setPoints(points: List<TimePoint>) {
+        if (series.size != 1) {
+            series.clear()
+            series.add(Series(lineColor))
+        }
+        series[0].points.clear()
+        points.forEach { p ->
+            if (!p.v.isNaN() && !p.v.isInfinite()) series[0].points.addLast(p)
+        }
+        trim(series[0])
+        invalidate()
+    }
+
+    /** Атомарно заменить точки одной серии мультиграфика */
+    fun setMultiPoints(index: Int, points: List<TimePoint>) {
+        if (index !in series.indices) return
+        series[index].points.clear()
+        points.forEach { p ->
+            if (!p.v.isNaN() && !p.v.isInfinite()) series[index].points.addLast(p)
+        }
+        trim(series[index])
+        invalidate()
+    }
+
     fun addTimePoint(t: Long, value: Float) {
         if (value.isNaN() || value.isInfinite()) return
         if (series.size != 1) {
