@@ -35,7 +35,9 @@ class WidgetAdapter(
     /** смена периода истории на narodmon-карточке графика (чипы 1d/1w/1m/1y) */
     var onChartPeriodSelected: ((Panel, String) -> Unit)? = null,
     /** Подключения с включённой Grafana — у их графиков видны чипы периодов */
-    var grafanaConnectionIds: Set<Long> = emptySet()
+    var grafanaConnectionIds: Set<Long> = emptySet(),
+    /** Двойной тап по карточке графика/мультиграфика — полноэкранный просмотр */
+    var onChartDoubleClick: ((Panel) -> Unit)? = null
 ) : RecyclerView.Adapter<WidgetAdapter.BaseHolder>() {
 
     private val items = mutableListOf<Panel>()
@@ -173,6 +175,39 @@ class WidgetAdapter(
         val idx = items.indexOfFirst { it.id == panelId }
         if (idx >= 0) notifyItemChanged(idx)
     }
+
+    /** Точки одиночного графика (копия) для полноэкранного просмотра */
+    fun chartPointsOf(panelId: Long): List<ChartView.TimePoint> =
+        chartHistory[panelId]?.toList().orEmpty()
+
+    /** Точки серий мультиграфика (копия): индекс серии -> точки */
+    fun multiPointsOf(panelId: Long): Map<Int, List<ChartView.TimePoint>> =
+        chartMultiHistory.keys
+            .filter { it.substringBefore(':').toLongOrNull() == panelId }
+            .associate { key ->
+                key.substringAfter(':').toInt() to (chartMultiHistory[key]?.toList().orEmpty())
+            }
+
+    /** Данные карточки по id (для полноэкранного просмотра) */
+    fun panelById(panelId: Long): Panel? = items.firstOrNull { it.id == panelId }
+
+    /** id карточки, чья тема (или тема серии) совпала с topic — для live-обновления диалога */
+    fun panelIdForTopic(topic: String): Long? = items.firstOrNull { p ->
+        if (p.type == WidgetType.MULTI_CHART) {
+            p.series.any { it.topic.isNotBlank() && topicMatches(it.topic, topic) }
+        } else {
+            p.topicSubscribe.isNotBlank() && topicMatches(p.topicSubscribe, topic)
+        }
+    }?.id
+
+    /** Есть ли уже загруженная история у карточки */
+    fun hasHistory(panelId: Long, isMulti: Boolean): Boolean =
+        if (isMulti) chartMultiHistory.keys.any {
+            it.substringBefore(':').toLongOrNull() == panelId && !chartMultiHistory[it].isNullOrEmpty()
+        } else !chartHistory[panelId].isNullOrEmpty()
+
+    /** Индекс последней обновившейся серии мультиграфика (для цвета значения) */
+    fun lastSeriesIndexOf(panelId: Long): Int? = multiLastSeries[panelId]
 
     /** Очистить кэш истории графика — смена периода карточки (1d↔1w↔1m↔1y) */
     fun clearHistory(panelId: Long) {
@@ -361,6 +396,24 @@ class WidgetAdapter(
             itemView.setOnLongClickListener {
                 if (moveMode) onDragStart(this) else showMenu(it, panel)
                 true
+            }
+
+            // Двойной тап по графику/мультиграфику — полноэкранный просмотр;
+            // onTouch возвращает false, чтобы клики и долгие нажатия работали как раньше
+            if (panel.type == WidgetType.CHART || panel.type == WidgetType.MULTI_CHART) {
+                val doubleTap = android.view.GestureDetector(
+                    itemView.context,
+                    object : android.view.GestureDetector.SimpleOnGestureListener() {
+                        override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                            if (!moveMode) onChartDoubleClick?.invoke(panel)
+                            return true
+                        }
+                    }
+                )
+                itemView.setOnTouchListener { _, event ->
+                    doubleTap.onTouchEvent(event)
+                    false
+                }
             }
 
             // Троеточие в углу плашки — меню редактировать/удалить

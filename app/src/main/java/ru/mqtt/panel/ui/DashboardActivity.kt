@@ -81,6 +81,7 @@ class DashboardActivity : AppCompatActivity() {
     /** идёт загрузка историй графиков Народмона (чтобы не стартовать дважды) */
     private var historyLoading = false
     private var grafanaHistoryLoading = false
+    private var fullscreenChart: FullscreenChartDialog? = null
 
     // --- сервис-агностика: подключение обслуживает MqttService или NarodmonService ---
 
@@ -199,6 +200,7 @@ class DashboardActivity : AppCompatActivity() {
             val time = intent.getLongExtra(MqttService.EXTRA_MESSAGE_TIME, System.currentTimeMillis())
             receivedCount++
             widgetAdapter.updateValueByTopic(topic, payload, time)
+            widgetAdapter.panelIdForTopic(topic)?.let { refreshFullscreen(it) }
             renderStatus(connected = svcState() == ConnectionState.CONNECTED)
         }
     }
@@ -234,6 +236,8 @@ class DashboardActivity : AppCompatActivity() {
         )
         // Чипы «1d/1w/1m/1y» на narodmon-графике: сохранить период и перезагрузить историю
         widgetAdapter.onChartPeriodSelected = { panel, period -> onChartPeriodChanged(panel, period) }
+        // Двойной тап по графику/мультиграфику — полноэкранный просмотр
+        widgetAdapter.onChartDoubleClick = { panel -> openFullscreenChart(panel) }
 
         // Сетка 6 колонок: span панели = 6 (вся ширина), 3 (1/2) или 2 (1/3)
         val grid = GridLayoutManager(this, 6)
@@ -920,6 +924,7 @@ class DashboardActivity : AppCompatActivity() {
                 widgetAdapter.clearHistory(panel.id)
                 if (isMulti) widgetAdapter.clearMultiHistory(panel.id)
                 widgetAdapter.updatePanelMeta(updated)
+                fullscreenChart?.setPeriod(period)
             }
             if (updated.source == "narodmon") reloadPanelHistory(updated)
             else reloadGrafanaHistory(updated)
@@ -953,6 +958,7 @@ class DashboardActivity : AppCompatActivity() {
                 history = points.map { listOf(it.t.toDouble(), it.v.toDouble()) }
             )
             repository.saveRuntimeValues(connectionId, all)
+            refreshFullscreen(panel.id)
         }
     }
 
@@ -1032,6 +1038,7 @@ class DashboardActivity : AppCompatActivity() {
                 loaded.forEach { (i, pts) ->
                     widgetAdapter.prependMultiHistory(panel.id, i, pts.map { ChartView.TimePoint(it.t, it.v) })
                 }
+                refreshFullscreen(panel.id)
             }
             if (loaded.isNotEmpty()) {
                 val all = repository.loadRuntimeValues(connectionId).toMutableMap()
@@ -1060,6 +1067,7 @@ class DashboardActivity : AppCompatActivity() {
             withContext(Dispatchers.Main) {
                 widgetAdapter.prependHistory(panel.id, pts.map { ChartView.TimePoint(it.t, it.v) })
             }
+            refreshFullscreen(panel.id)
             val all = repository.loadRuntimeValues(connectionId).toMutableMap()
             all[panel.id.toString()] = (all[panel.id.toString()] ?: AppRepository.RuntimeValue()).copy(
                 fetchedAt = System.currentTimeMillis(),
@@ -1073,6 +1081,37 @@ class DashboardActivity : AppCompatActivity() {
                 "GRAFANA ${panel.name} ${panel.topicSubscribe} → ${e.message}")
             e.message ?: e.javaClass.simpleName
         }
+    }
+
+    /**
+     * Полноэкранный просмотр графика (двойной тап по карточке): точки — из
+     * кэша адаптера, live обновляется через refreshFullscreen.
+     */
+    private fun openFullscreenChart(panel: Panel) {
+        val isMulti = panel.type == WidgetType.MULTI_CHART
+        val dlg = FullscreenChartDialog(
+            this, panel,
+            hasHistory = widgetAdapter.hasHistory(panel.id, isMulti),
+            single = if (!isMulti) widgetAdapter.chartPointsOf(panel.id) else emptyList(),
+            multi = if (isMulti) widgetAdapter.multiPointsOf(panel.id) else emptyMap(),
+            onPeriodSelected = { period -> onChartPeriodChanged(panel, period) }
+        )
+        dlg.setOnDismissListener { fullscreenChart = null }
+        fullscreenChart = dlg
+        dlg.show()
+    }
+
+    /** Обновить открытый полноэкранный график данными из адаптера */
+    private fun refreshFullscreen(panelId: Long) {
+        val dlg = fullscreenChart ?: return
+        val panel = widgetAdapter.panelById(panelId) ?: return
+        val isMulti = panel.type == WidgetType.MULTI_CHART
+        dlg.updateData(
+            panel,
+            widgetAdapter.lastSeriesIndexOf(panelId).takeIf { isMulti },
+            if (!isMulti) widgetAdapter.chartPointsOf(panelId) else emptyList(),
+            if (isMulti) widgetAdapter.multiPointsOf(panelId) else emptyMap()
+        )
     }
 
     /** Чип периода на MQTT-графике с историей из Grafana */
