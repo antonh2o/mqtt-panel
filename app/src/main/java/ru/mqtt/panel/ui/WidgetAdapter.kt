@@ -565,10 +565,10 @@ class WidgetAdapter(
                 listOf("1d", "1w", "1m", "1y").forEach { label ->
                     val chip = android.widget.TextView(row.context).apply {
                         text = label
-                        textSize = 11f
-                        setPadding((10 * d).toInt(), (2 * d).toInt(), (10 * d).toInt(), (2 * d).toInt())
+                        textSize = 13f
+                        setPadding((12 * d).toInt(), (4 * d).toInt(), (12 * d).toInt(), (4 * d).toInt())
                         background = android.graphics.drawable.GradientDrawable().apply {
-                            cornerRadius = 12 * d
+                            cornerRadius = 14 * d
                             setColor(0x22888888)
                         }
                         layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -623,6 +623,12 @@ class WidgetAdapter(
             bindPeriodChips(panel)
         }
 
+        /** Значение для легенды: float-хвосты (242.89999…) округляются до 2 знаков */
+        private fun fmtLegend(v: Float): String {
+            val s = String.format(java.util.Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
+            return if (s.isEmpty() || s.endsWith(".")) s + "0" else s
+        }
+
         private fun buildLegend(panel: Panel) {
             val lg = legend ?: return
             val ctx = lg.context
@@ -634,7 +640,7 @@ class WidgetAdapter(
                     orientation = android.widget.LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
                 }
-                val dotSize = (10 * d).toInt()
+                val dotSize = (12 * d).toInt()
                 val dot = View(ctx)
                 dot.layoutParams = android.widget.LinearLayout.LayoutParams(dotSize, dotSize).apply {
                     marginEnd = (6 * d).toInt()
@@ -647,11 +653,25 @@ class WidgetAdapter(
                 row.addView(dot)
                 val label = android.widget.TextView(ctx).apply {
                     text = s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
-                    textSize = 11f
+                    textSize = 13f
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 }
                 row.addView(label)
+                // значение серии — цветом топика, рядом с подписью
+                chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let { p ->
+                    val tvVal = android.widget.TextView(ctx).apply {
+                        text = "  " + fmtLegend(p.v) + panel.unitSuffix
+                        textSize = 13f
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        setTextColor(parseColor(s.color, fallback))
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { marginStart = (8 * d).toInt() }
+                    }
+                    row.addView(tvVal)
+                }
                 lg.addView(row)
             }
         }

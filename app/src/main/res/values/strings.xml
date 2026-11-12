@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MQTT+Narodmon Панель</string>
+    <string name="app_name">MQTT+ Panel</string>
     <string name="title_connections">Подключения</string>
     <string name="add_connection">Добавить</string>
     <string name="edit_connection">Редактировать</string>

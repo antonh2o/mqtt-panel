@@ -98,12 +98,12 @@ class ChartView @JvmOverloads constructor(
     }
 
     private val scalePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 9f * density
+        textSize = 11f * density
         color = withAlpha(DEFAULT_COLOR, TEXT_ALPHA)
     }
 
     private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 8.5f * density
+        textSize = 10.5f * density
         color = withAlpha(NEUTRAL_COLOR, 100)
         textAlign = Paint.Align.CENTER
     }
@@ -171,7 +171,7 @@ class ChartView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val gutter = if (showScale) scalePaint.measureText("000000") + 4f * density else 0f
-        val timeLabelsH = 14f * density
+        val timeLabelsH = 17f * density
         val w = width - gutter
         val h = height - timeLabelsH
         if (w <= 0f) return

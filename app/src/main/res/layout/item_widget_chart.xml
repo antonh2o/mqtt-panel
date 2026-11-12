@@ -46,12 +46,12 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:gravity="center"
-            android:textSize="12sp"
+            android:textSize="16sp"
             android:textStyle="bold"
-            android:text="—" 
+            android:text="—"
             app:autoSizeTextType="uniform"
-            app:autoSizeMinTextSize="9sp"
-            app:autoSizeMaxTextSize="12sp"/>
+            app:autoSizeMinTextSize="10sp"
+            app:autoSizeMaxTextSize="16sp"/>
 
         <ru.mqtt.panel.ui.ChartView
             android:id="@+id/chart_view"

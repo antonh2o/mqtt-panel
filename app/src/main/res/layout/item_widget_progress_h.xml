@@ -38,17 +38,11 @@
 
         </FrameLayout>
 
-        <ru.mqtt.panel.ui.HorizontalProgressView
-            android:id="@+id/progress_horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="26dp"
-            android:layout_marginTop="8dp" />
-
         <TextView
             android:id="@+id/tv_value"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="8dp"
             android:gravity="center"
             android:textSize="16sp"
             android:textStyle="bold"
@@ -56,6 +50,12 @@
             app:autoSizeMinTextSize="9sp"
             app:autoSizeMaxTextSize="16sp"
             android:text="—" />
+
+        <ru.mqtt.panel.ui.HorizontalProgressView
+            android:id="@+id/progress_horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:layout_marginTop="4dp" />
 
         <TextView
             android:id="@+id/tv_topic"
