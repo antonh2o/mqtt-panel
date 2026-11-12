@@ -48,7 +48,12 @@
             android:text="@string/btn_add"
             android:contentDescription="@string/add_connection"
             app:icon="@drawable/ic_add"
-            app:iconGravity="textStart" />
+            app:iconGravity="textStart"
+            android:maxLines="1"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="10sp"
+            android:autoSizeMaxTextSize="14sp"
+            android:autoSizeStepGranularity="0.5sp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_import"
@@ -60,7 +65,12 @@
             android:text="@string/btn_import"
             android:contentDescription="@string/menu_import"
             app:icon="@drawable/ic_import"
-            app:iconGravity="textStart" />
+            app:iconGravity="textStart"
+            android:maxLines="1"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="10sp"
+            android:autoSizeMaxTextSize="14sp"
+            android:autoSizeStepGranularity="0.5sp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_export"
@@ -72,7 +82,12 @@
             android:text="@string/btn_export"
             android:contentDescription="@string/menu_export"
             app:icon="@drawable/ic_export"
-            app:iconGravity="textStart" />
+            app:iconGravity="textStart"
+            android:maxLines="1"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="10sp"
+            android:autoSizeMaxTextSize="14sp"
+            android:autoSizeStepGranularity="0.5sp" />
 
     </LinearLayout>
 
