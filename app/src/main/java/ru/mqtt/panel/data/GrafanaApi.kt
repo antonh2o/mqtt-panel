@@ -110,6 +110,26 @@ object GrafanaApi {
 
     // --- сеть ---
 
+    /** Grafana не нашла datasource по указанному uid — пробуем резолв по имени */
+    class DatasourceNotFound(message: String) : IllegalStateException(message)
+
+    private fun queryBody(uid: String, query: String, fromMs: Long, toMs: Long, maxPoints: Int): String =
+        JSONObject().apply {
+            // from/to — ТОЛЬКО строки: числа Grafana 9+ отвечает 400 «bad request data»
+            put("from", fromMs.toString())
+            put("to", toMs.toString())
+            put("queries", JSONArray().put(JSONObject().apply {
+                put("refId", "A")
+                put("datasource", JSONObject().apply {
+                    put("type", "influxdb")
+                    put("uid", uid)
+                })
+                put("rawQuery", true)
+                put("query", query)
+                put("maxDataPoints", maxPoints)
+            }))
+        }.toString()
+
     /**
      * История за период чипа. Бросает IllegalStateException с понятным
      * текстом (HTTP 401 и т.п.) — вызывающий показывает тост.
@@ -120,21 +140,34 @@ object GrafanaApi {
     ): List<NarodmonApi.NmPoint> = withContext(Dispatchers.IO) {
         val to = System.currentTimeMillis()
         val from = to - periodSpan(period)
-        val body = JSONObject().apply {
-            put("from", from)
-            put("to", to)
-            put("queries", JSONArray().put(JSONObject().apply {
-                put("refId", "A")
-                put("datasource", JSONObject().apply {
-                    put("type", "influxdb")
-                    put("uid", settings.dsUid)
-                })
-                put("rawQuery", true)
-                put("query", influxQuery(measurement, field, tagKey, tagValue, from, to, 500))
-                put("maxDataPoints", 500)
-            }))
+        val query = influxQuery(measurement, field, tagKey, tagValue, from, to, 500)
+        val text = try {
+            request(settings, "POST", "${settings.url}/api/ds/query",
+                queryBody(settings.dsUid, query, from, to, 500))
+        } catch (e: DatasourceNotFound) {
+            // в настройках часто вписывают ИМЯ datasource («InfluxDB»), а не uid —
+            // резолвим через /api/datasources и повторяем запрос
+            val real = resolveUid(settings)
+                ?: throw IllegalStateException("Datasource не найден — проверьте UID в настройках Grafana")
+            request(settings, "POST", "${settings.url}/api/ds/query",
+                queryBody(real, query, from, to, 500))
         }
-        parseFrames(post(settings, body.toString(), from, to))
+        parseFrames(text)
+    }
+
+    /** uid datasource по имени (GET /api/datasources; нужен admin) */
+    private suspend fun resolveUid(settings: Settings): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val text = request(settings, "GET", "${settings.url}/api/datasources", null)
+            val arr = JSONArray(text)
+            for (i in 0 until arr.length()) {
+                val ds = arr.getJSONObject(i)
+                if (ds.optString("name").equals(settings.dsUid, ignoreCase = true)) {
+                    return@runCatching ds.optString("uid")
+                }
+            }
+            null
+        }.getOrNull()
     }
 
     /** Проверка подключения: GET /api/health с basic auth */
@@ -145,9 +178,6 @@ object GrafanaApi {
                 ?.get("version")?.takeIf { it.isJsonPrimitive }?.asString
         }.getOrNull() ?: "ok"
     }
-
-    private fun post(settings: Settings, body: String, fromMs: Long, toMs: Long): String =
-        request(settings, "POST", "${settings.url}/api/ds/query", body)
 
     private fun request(settings: Settings, method: String, url: String, body: String?): String {
         val auth = Base64.encodeToString(
@@ -169,10 +199,12 @@ object GrafanaApi {
         val code = conn.responseCode
         val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
             ?.bufferedReader()?.use { it.readText() } ?: ""
-        when (code) {
-            401 -> throw IllegalStateException("HTTP 401 — неверный логин/пароль Grafana")
-            403 -> throw IllegalStateException("HTTP 403 — у пользователя нет доступа к datasource")
-            404 -> throw IllegalStateException("HTTP 404 — проверьте адрес и UID datasource")
+        when {
+            code == 401 -> throw IllegalStateException("HTTP 401 — неверный логин/пароль Grafana")
+            code == 403 -> throw IllegalStateException("HTTP 403 — у пользователя нет доступа к datasource")
+            code == 404 && text.contains("Data source not found") ->
+                throw DatasourceNotFound("HTTP 404 — Data source not found")
+            code == 404 -> throw IllegalStateException("HTTP 404 — проверьте адрес и UID datasource")
         }
         if (code !in 200..299) throw IllegalStateException("HTTP $code: ${text.take(150)}")
         return text

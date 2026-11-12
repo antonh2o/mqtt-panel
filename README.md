@@ -4,7 +4,7 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 
 **Текущая версия:** 0.2.55 · minSdk 24 (Android 7.0) · Kotlin · Eclipse Paho 1.2.5
 
-**Главный экран · Квартира: MQTT / MQTT + Grafana / Narodmon**
+**Главный экран · Квартира: живые точки из MQTT + история из Grafana**
 
 <p align="center"><img src="screenshots/screens-1.png" width="660"></p>
 
@@ -12,11 +12,11 @@ Android-дашборд для [MQTT](https://mqtt.org/)-брокера и пла
 
 <p align="center"><img src="screenshots/screens-2.png" width="660"></p>
 
-**Мультиграфик · динамический цвет · тёмная тема**
+**Мультиграфик со значениями цветами серий · тёмная тема**
 
 <p align="center"><img src="screenshots/screens-3.png" width="660"></p>
 
-**Редакторы: цвет по значению · серии мультиграфика**
+**Редакторы: цвет по значению и диапазон · подключение с историей из Grafana**
 
 <p align="center"><img src="screenshots/screens-4.png" width="660"></p>
 

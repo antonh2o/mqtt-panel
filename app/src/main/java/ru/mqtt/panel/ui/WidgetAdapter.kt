@@ -40,6 +40,9 @@ class WidgetAdapter(
 
     private val items = mutableListOf<Panel>()
 
+    /** panelId -> индекс серии, чьё значение пришло последним (цвет большого значения) */
+    private val multiLastSeries = mutableMapOf<Long, Int>()
+
     /** Резервные цвета кружков легенды, если у серии нечитаемый hex */
     private val legendPalette = listOf(
         "#4CAF50", "#2196F3", "#FF9800", "#F44336", "#9C27B0", "#00BCD4",
@@ -66,6 +69,7 @@ class WidgetAdapter(
         val ids = list.map { it.id }.toSet()
         chartHistory.keys.retainAll(ids)
         chartMultiHistory.keys.retainAll { it.substringBefore(':').toLongOrNull() in ids }
+        multiLastSeries.keys.retainAll(ids)
         notifyDataSetChanged()
     }
 
@@ -138,6 +142,7 @@ class WidgetAdapter(
     /** Значение для серии мультиграфика (panel.lastValue — последнее из любых её тем) */
     private fun applyMultiValue(panel: Panel, seriesIndex: Int, value: String, time: Long = System.currentTimeMillis()) {
         panel.lastValue = value
+        multiLastSeries[panel.id] = seriesIndex
         if (time > panel.lastTime) panel.lastTime = time
         parseNumber(value)?.let { d ->
             val v = d.toFloat()
@@ -617,6 +622,17 @@ class WidgetAdapter(
                 chartMultiHistory["${panel.id}:$i"]?.forEach { p -> cv.addMultiTimePoint(i, p.t, p.v) }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
+            // большое значение красится цветом той серии, чьё значение пришло последним
+            tvValue?.let { tv ->
+                val idx = multiLastSeries[panel.id]
+                val seriesColor = idx?.let { i ->
+                    panel.series.getOrNull(i)?.color?.takeIf { it.isNotBlank() }
+                }
+                tv.setTextColor(
+                    seriesColor?.let { parseColor(it, ChartView.DEFAULT_COLOR) }
+                        ?:ChartView.DEFAULT_COLOR
+                )
+            }
             // Тема карточки не одна — список тем виден в легенде
             tvTopic?.visibility = View.GONE
             buildLegend(panel)
