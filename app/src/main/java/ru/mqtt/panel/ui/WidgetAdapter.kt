@@ -343,6 +343,24 @@ class WidgetAdapter(
 
     inner class BaseHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val tvName: TextView = view.findViewById(R.id.tv_name)
+        /** Панель текущего бинда — GestureDetector создаётся ОДИН раз на holder
+         *  (в bind() он пересоздавался на каждом ребинде и терял состояние
+         *  между первым и вторым тапом → двойной тап ловился через раз) */
+        private var boundPanel: Panel? = null
+        private val doubleTap = android.view.GestureDetector(
+            view.context,
+            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                    val p = boundPanel ?: return false
+                    if (!moveMode &&
+                        (p.type == WidgetType.CHART || p.type == WidgetType.MULTI_CHART)) {
+                        onChartDoubleClick?.invoke(p)
+                        return true
+                    }
+                    return false
+                }
+            }
+        )
         private val btnMenu: View? = view.findViewById(R.id.btn_menu)
         private val tvTopic: TextView? = view.findViewById(R.id.tv_topic)
         private val tvValue: TextView? = view.findViewById(R.id.tv_value)
@@ -356,6 +374,17 @@ class WidgetAdapter(
         private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
         private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
         private val horizontalProgress: HorizontalProgressView? = view.findViewById(R.id.progress_horizontal)
+
+        init {
+            // Слушатель — ОДИН раз на holder: раньше навешивался в bind() и
+            // пересоздавался вместе с GestureDetector на каждом ребинде.
+            // false — события не потребляются, скролл, клик и долгое нажатие
+            // работают как раньше; фильтр по типу графика — в onDoubleTap.
+            view.setOnTouchListener { _, event ->
+                doubleTap.onTouchEvent(event)
+                false
+            }
+        }
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
@@ -398,23 +427,10 @@ class WidgetAdapter(
                 true
             }
 
-            // Двойной тап по графику/мультиграфику — полноэкранный просмотр;
-            // onTouch возвращает false, чтобы клики и долгие нажатия работали как раньше
-            if (panel.type == WidgetType.CHART || panel.type == WidgetType.MULTI_CHART) {
-                val doubleTap = android.view.GestureDetector(
-                    itemView.context,
-                    object : android.view.GestureDetector.SimpleOnGestureListener() {
-                        override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
-                            if (!moveMode) onChartDoubleClick?.invoke(panel)
-                            return true
-                        }
-                    }
-                )
-                itemView.setOnTouchListener { _, event ->
-                    doubleTap.onTouchEvent(event)
-                    false
-                }
-            }
+            // Detector создан в конструкторе holder — здесь только запоминаем панель.
+            // Возврат false из onTouch оставляет кликам и долгому нажатию их события;
+            // на не-графиках onDoubleTap сам возвращает false.
+            boundPanel = panel
 
             // Троеточие в углу плашки — меню редактировать/удалить
             btnMenu?.setOnClickListener { anchor -> showMenu(anchor, panel) }

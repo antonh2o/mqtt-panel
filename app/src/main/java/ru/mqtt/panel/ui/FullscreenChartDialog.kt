@@ -116,6 +116,10 @@ class FullscreenChartDialog(
         )
         chart.showScale = panel.chartShowScale
         if (isMulti) {
+            // Series в ChartView создаются только setMultiSeries — без неё
+            // setMultiPoints молча отбрасывал все точки (индекс вне пустого
+            // списка) и полноэкранный график был ПУСТЫМ.
+            chart.setMultiSeries(panel.series.map { parseColor(it.color, ChartView.DEFAULT_COLOR) })
             // атомарная замена точек — без промежуточной очистки (иначе «скачет»)
             panel.series.indices.forEach { i ->
                 chart.setMultiPoints(i, multi[i].orEmpty())
