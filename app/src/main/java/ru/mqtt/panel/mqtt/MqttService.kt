@@ -108,6 +108,18 @@ class MqttService : Service(), MqttCallbackExtended {
      */
     private val mqttWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
 
+    /**
+     * Демо-режим (первый запуск): приложение само публикует показания
+     * «датчиков» на свои топики брокера broker.emqx.io и показывает их.
+     * Отдельный пул — периодические публикации не должны занимать mqttWorker.
+     */
+    private val demoExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "demo-publisher")
+    }
+
+    @Volatile
+    private var demoFuture: java.util.concurrent.ScheduledFuture<*>? = null
+
     /** Сканер топиков: пока включён, держим подписку на `#` */
     @Volatile
     private var scanning = false
@@ -297,6 +309,42 @@ class MqttService : Service(), MqttCallbackExtended {
         // Подписку выносим в отдельный поток, чтобы не вызывать блокирующий
         // subscribe() из callback-потока Paho — это вызывает таймауты.
         mqttWorker.submit { subscribeAll() }
+        // Демо-подключение само генерирует показания — иначе пустому публичному
+        // брокеру показывать нечего ($SYS и # анонимам закрыты)
+        if (connection?.demo == true && connection?.host == ru.mqtt.panel.data.DemoConfig.DEMO_HOST) {
+            startDemoPublisher()
+        }
+    }
+
+    /** Публикация демо-показаний каждые 4 с на топики с префиксом демо-конфига */
+    private fun startDemoPublisher() {
+        val prefix = panels.firstNotNullOfOrNull {
+            ru.mqtt.panel.data.DemoConfig.prefixOfTopic(it.topicSubscribe)
+        } ?: panels.firstNotNullOfOrNull { p ->
+            p.series.firstNotNullOfOrNull { ru.mqtt.panel.data.DemoConfig.prefixOfTopic(it.topic) }
+        } ?: run {
+            ImportLog.write(this, "DEMO PUBLISHER: демо-топики не найдены")
+            return
+        }
+        stopDemoPublisher()
+        val sensors = ru.mqtt.panel.data.DemoConfig.DemoSensors()
+        demoFuture = demoExecutor.scheduleWithFixedDelay({
+            val mqttClient = client ?: return@scheduleWithFixedDelay
+            if (!mqttClient.isConnected) return@scheduleWithFixedDelay
+            try {
+                sensors.tick().forEach { (suffix, payload) ->
+                    publish("$prefix/$suffix", payload, 0, false)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Demo publish error", e)
+            }
+        }, 800, 4000, java.util.concurrent.TimeUnit.MILLISECONDS)
+        ImportLog.write(this, "DEMO PUBLISHER: запущен, $prefix каждые 4 с")
+    }
+
+    private fun stopDemoPublisher() {
+        demoFuture?.cancel(false)
+        demoFuture = null
     }
 
     private fun subscribeAll() {
@@ -383,6 +431,7 @@ class MqttService : Service(), MqttCallbackExtended {
     }
 
     private fun disconnectClient() {
+        stopDemoPublisher()
         try {
             client?.let {
                 it.setCallback(null)
@@ -393,6 +442,11 @@ class MqttService : Service(), MqttCallbackExtended {
             Log.w(TAG, "Disconnect error", e)
         }
         client = null
+    }
+
+    override fun onDestroy() {
+        demoExecutor.shutdownNow()
+        super.onDestroy()
     }
 
     private fun broadcastStatus(state: ConnectionState) {

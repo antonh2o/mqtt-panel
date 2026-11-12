@@ -18,6 +18,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
+import ru.mqtt.panel.data.DemoConfig
 import ru.mqtt.panel.data.ImportLog
 import ru.mqtt.panel.data.IotMqttPanelImporter
 import ru.mqtt.panel.databinding.ActivityMainBinding
@@ -381,6 +382,29 @@ class MainActivity : AppCompatActivity() {
         if (System.currentTimeMillis() - last > 12 * 3600_000L) {
             prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply()
             checkForUpdates(manual = false)
+        }
+        // Первый запуск с пустой конфигурацией → демо-дашборд на публичном
+        // брокере broker.emqx.io (живые значения публикует само приложение).
+        // Флаг ставится при первом решении: если пользователь позже удалит все
+        // подключения, демо НЕ подгружается повторно.
+        if (!prefs.getBoolean("demo_decided", false)) {
+            lifecycleScope.launch {
+                val empty = repository.getConnections().isEmpty()
+                if (empty) {
+                    val json = Gson().toJson(DemoConfig.build())
+                    if (repository.importConfig(json)) {
+                        ImportLog.write(
+                            this@MainActivity,
+                            "DEMO: первый запуск — загружен демо-дашборд ${DemoConfig.DEMO_HOST}"
+                        )
+                        Toast.makeText(
+                            this@MainActivity, R.string.demo_loaded_toast, Toast.LENGTH_LONG
+                        ).show()
+                        refreshFragment()
+                    }
+                }
+                prefs.edit().putBoolean("demo_decided", true).apply()
+            }
         }
     }
 

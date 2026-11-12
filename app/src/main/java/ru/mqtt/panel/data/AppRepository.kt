@@ -79,7 +79,11 @@ class AppRepository(private val context: Context) {
         val fixedConnections = connections.map {
             // Gson не вызывает конструктор: в конфигах до 0.2.19 полей narodmon/apiKey
             // нет, и они физически null despite non-null типы — чистим здесь
-            it.copy(narodmon = it.narodmon ?: false, apiKey = it.apiKey ?: "").copy(id = ++cid)
+            it.copy(
+                narodmon = it.narodmon ?: false,
+                apiKey = it.apiKey ?: "",
+                demo = it.demo ?: false
+            ).copy(id = ++cid)
         }
         // ClientID уникален для каждого устройства: брокер разрывает
         // соединение клиента с уже занятым ID, поэтому два приложения,

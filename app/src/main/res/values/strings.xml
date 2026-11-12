@@ -97,6 +97,7 @@
     <string name="panels_count">Панелей: %1$d</string>
     <string name="log_saved_to">Журнал: %1$s</string>
     <string name="share_log">Отправить журнал</string>
+    <string name="demo_loaded_toast">Загружен демо-дашборд: публичный брокер broker.emqx.io, значения обновляются каждые несколько секунд</string>
     <string name="log_empty">Журнал пуст</string>
     <string name="history_unavailable">История не получена: %1$s</string>
     <string name="grafana_settings">Настройки Grafana</string>

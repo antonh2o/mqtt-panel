@@ -97,6 +97,7 @@
     <string name="panels_count">Panels: %1$d</string>
     <string name="log_saved_to">Log: %1$s</string>
     <string name="share_log">Send log</string>
+    <string name="demo_loaded_toast">Demo dashboard loaded: public broker broker.emqx.io, values update every few seconds</string>
     <string name="log_empty">Log is empty</string>
     <string name="history_unavailable">History unavailable: %1$s</string>
     <string name="grafana_settings">Grafana settings</string>
