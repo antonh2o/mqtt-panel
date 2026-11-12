@@ -35,9 +35,7 @@ class WidgetAdapter(
     /** смена периода истории на narodmon-карточке графика (чипы 1d/1w/1m/1y) */
     var onChartPeriodSelected: ((Panel, String) -> Unit)? = null,
     /** Подключения с включённой Grafana — у их графиков видны чипы периодов */
-    var grafanaConnectionIds: Set<Long> = emptySet(),
-    /** Двойной тап по карточке графика/мультиграфика — полноэкранный просмотр */
-    var onChartDoubleClick: ((Panel) -> Unit)? = null
+    var grafanaConnectionIds: Set<Long> = emptySet()
 ) : RecyclerView.Adapter<WidgetAdapter.BaseHolder>() {
 
     private val items = mutableListOf<Panel>()
@@ -105,22 +103,25 @@ class WidgetAdapter(
 
     /** Обновить все панели, подписанные на тему (с учётом MQTT-масок +/#) */
     fun updateValueByTopic(topic: String, value: String, time: Long = System.currentTimeMillis()) {
-        var changed = false
+        // Точечные уведомления вместо notifyDataSetChanged: сообщения приходят
+        // несколько раз в секунду, и полный ребинд ВСЕХ карточек давал мигание
+        // и срывал жесты (RecyclerView перекладывал элементы под пальцем)
+        val changed = LinkedHashSet<Int>()
         items.forEachIndexed { index, panel ->
             if (panel.type == WidgetType.MULTI_CHART) {
                 // значение уходит в те серии, чья тема совпала
                 panel.series.forEachIndexed { i, s ->
                     if (s.topic.isNotBlank() && topicMatches(s.topic, topic)) {
                         applyMultiValue(panel, i, value, time)
-                        changed = true
+                        changed.add(index)
                     }
                 }
             } else if (panel.topicSubscribe.isNotBlank() && topicMatches(panel.topicSubscribe, topic)) {
                 applyValue(index, value, time)
-                changed = true
+                changed.add(index)
             }
         }
-        if (changed) notifyDataSetChanged()
+        changed.forEach { notifyItemChanged(it) }
     }
 
     private fun applyValue(index: Int, value: String, time: Long = System.currentTimeMillis()) {
@@ -192,13 +193,18 @@ class WidgetAdapter(
     fun panelById(panelId: Long): Panel? = items.firstOrNull { it.id == panelId }
 
     /** id карточки, чья тема (или тема серии) совпала с topic — для live-обновления диалога */
-    fun panelIdForTopic(topic: String): Long? = items.firstOrNull { p ->
+    fun panelIdForTopic(topic: String): Long? = panelIdsForTopic(topic).firstOrNull()
+
+    /** ВСЕ карточки, подписанные на тему: одна тема может быть и у VALUE-карточки,
+     *  и серией мультиграфика — открытый полноэкранный график должен обновляться
+     *  и тогда, когда первым в списке стоит другая карточка */
+    fun panelIdsForTopic(topic: String): List<Long> = items.filter { p ->
         if (p.type == WidgetType.MULTI_CHART) {
             p.series.any { it.topic.isNotBlank() && topicMatches(it.topic, topic) }
         } else {
             p.topicSubscribe.isNotBlank() && topicMatches(p.topicSubscribe, topic)
         }
-    }?.id
+    }.map { it.id }
 
     /** Есть ли уже загруженная история у карточки */
     fun hasHistory(panelId: Long, isMulti: Boolean): Boolean =
@@ -343,24 +349,6 @@ class WidgetAdapter(
 
     inner class BaseHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val tvName: TextView = view.findViewById(R.id.tv_name)
-        /** Панель текущего бинда — GestureDetector создаётся ОДИН раз на holder
-         *  (в bind() он пересоздавался на каждом ребинде и терял состояние
-         *  между первым и вторым тапом → двойной тап ловился через раз) */
-        private var boundPanel: Panel? = null
-        private val doubleTap = android.view.GestureDetector(
-            view.context,
-            object : android.view.GestureDetector.SimpleOnGestureListener() {
-                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
-                    val p = boundPanel ?: return false
-                    if (!moveMode &&
-                        (p.type == WidgetType.CHART || p.type == WidgetType.MULTI_CHART)) {
-                        onChartDoubleClick?.invoke(p)
-                        return true
-                    }
-                    return false
-                }
-            }
-        )
         private val btnMenu: View? = view.findViewById(R.id.btn_menu)
         private val tvTopic: TextView? = view.findViewById(R.id.tv_topic)
         private val tvValue: TextView? = view.findViewById(R.id.tv_value)
@@ -374,17 +362,6 @@ class WidgetAdapter(
         private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
         private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
         private val horizontalProgress: HorizontalProgressView? = view.findViewById(R.id.progress_horizontal)
-
-        init {
-            // Слушатель — ОДИН раз на holder: раньше навешивался в bind() и
-            // пересоздавался вместе с GestureDetector на каждом ребинде.
-            // false — события не потребляются, скролл, клик и долгое нажатие
-            // работают как раньше; фильтр по типу графика — в onDoubleTap.
-            view.setOnTouchListener { _, event ->
-                doubleTap.onTouchEvent(event)
-                false
-            }
-        }
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
@@ -426,11 +403,6 @@ class WidgetAdapter(
                 if (moveMode) onDragStart(this) else showMenu(it, panel)
                 true
             }
-
-            // Detector создан в конструкторе holder — здесь только запоминаем панель.
-            // Возврат false из onTouch оставляет кликам и долгому нажатию их события;
-            // на не-графиках onDoubleTap сам возвращает false.
-            boundPanel = panel
 
             // Троеточие в углу плашки — меню редактировать/удалить
             btnMenu?.setOnClickListener { anchor -> showMenu(anchor, panel) }

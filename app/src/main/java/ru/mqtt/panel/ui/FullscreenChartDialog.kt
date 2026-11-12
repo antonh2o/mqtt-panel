@@ -37,6 +37,9 @@ class FullscreenChartDialog(
     private var currentPeriod: String = panel.historyPeriod ?: "day"
     private var lastSeriesIdx: Int? = null
 
+    /** Карточка, для которой открыт диалог — по ней фильтруются live-обновления */
+    val panelId: Long get() = panel.id
+
     private val periods = listOf("day", "week", "month", "year")
     private val labels = listOf("1d", "1w", "1m", "1y")
     private val isMulti = panel.type == WidgetType.MULTI_CHART

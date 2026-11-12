@@ -200,7 +200,16 @@ class DashboardActivity : AppCompatActivity() {
             val time = intent.getLongExtra(MqttService.EXTRA_MESSAGE_TIME, System.currentTimeMillis())
             receivedCount++
             widgetAdapter.updateValueByTopic(topic, payload, time)
-            widgetAdapter.panelIdForTopic(topic)?.let { refreshFullscreen(it) }
+            // Полноэкранный график обновляем ТОЛЬКО если тема относится к его
+            // карточке. Раньше брался panelIdForTopic — первая совпавшая карточка,
+            // и открытый «Электрика» перерисовывался данными «Температуры»
+            // (общие темы у VALUE-карточек и серий мультиграфиков) → линии
+            // пропадали и график «переключался» на чужой.
+            fullscreenChart?.let { dlg ->
+                if (widgetAdapter.panelIdsForTopic(topic).contains(dlg.panelId)) {
+                    refreshFullscreen(dlg.panelId)
+                }
+            }
             renderStatus(connected = svcState() == ConnectionState.CONNECTED)
         }
     }
@@ -236,8 +245,6 @@ class DashboardActivity : AppCompatActivity() {
         )
         // Чипы «1d/1w/1m/1y» на narodmon-графике: сохранить период и перезагрузить историю
         widgetAdapter.onChartPeriodSelected = { panel, period -> onChartPeriodChanged(panel, period) }
-        // Двойной тап по графику/мультиграфику — полноэкранный просмотр
-        widgetAdapter.onChartDoubleClick = { panel -> openFullscreenChart(panel) }
 
         // Сетка 6 колонок: span панели = 6 (вся ширина), 3 (1/2) или 2 (1/3)
         val grid = GridLayoutManager(this, 6)
@@ -247,6 +254,36 @@ class DashboardActivity : AppCompatActivity() {
         }
         binding.recyclerWidgets.layoutManager = grid
         binding.recyclerWidgets.adapter = widgetAdapter
+
+        // Двойной тап по карточке графика — полноэкранный просмотр. Детектор
+        // живёт на RecyclerView, а не на карточках: карточки перебиндиваются
+        // несколько раз в секунду (live-значения), и любой слушатель на itemView
+        // сбрасывался посреди жеста — второй тап уже не распознавался.
+        val doubleTapDetector = android.view.GestureDetector(
+            this,
+            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                    if (widgetAdapter.moveMode) return false
+                    val child = binding.recyclerWidgets.findChildViewUnder(e.x, e.y) ?: return false
+                    val holder = binding.recyclerWidgets.getChildViewHolder(child)
+                    val panel = widgetAdapter.panelAt(holder.bindingAdapterPosition) ?: return false
+                    if (panel.type != WidgetType.CHART && panel.type != WidgetType.MULTI_CHART) return false
+                    openFullscreenChart(panel)
+                    return true
+                }
+            }
+        )
+        binding.recyclerWidgets.addOnItemTouchListener(
+            object : androidx.recyclerview.widget.RecyclerView.SimpleOnItemTouchListener() {
+                override fun onInterceptTouchEvent(
+                    rv: androidx.recyclerview.widget.RecyclerView,
+                    e: android.view.MotionEvent
+                ): Boolean {
+                    doubleTapDetector.onTouchEvent(e)
+                    return false
+                }
+            }
+        )
 
         // Режим перемещения: перетаскивание карточек долгим нажатием
         val dragCallback = object : androidx.recyclerview.widget.ItemTouchHelper.Callback() {
@@ -1008,7 +1045,9 @@ class DashboardActivity : AppCompatActivity() {
                 runCatching {
                     ru.mqtt.panel.data.GrafanaApi.history(settings, measurement, field, tag, s.topic, period)
                 }.onSuccess { pts ->
-                    loaded.add(i to pts)
+                    // Пустые серии не считаем загруженными: иначе при replace
+                    // очистка истории превращала график в пустой экран
+                    if (pts.isNotEmpty()) loaded.add(i to pts)
                     ImportLog.write(applicationContext,
                         "GRAFANA ${panel.name}[серия $i] ${s.topic} $measurement/$field $period → ${pts.size} точек")
                 }.onFailure { e ->
@@ -1021,7 +1060,9 @@ class DashboardActivity : AppCompatActivity() {
             ImportLog.write(applicationContext,
                 "GRAFANA ${panel.name}: период $period, серий с данными ${loaded.size}/$topics")
             withContext(Dispatchers.Main) {
-                if (replace) widgetAdapter.clearMultiHistory(panel.id)
+                // Очищаем прежнюю историю ТОЛЬКО когда есть чем заменить:
+                // пустой ответ за новый период оставлял график без линий
+                if (replace && loaded.isNotEmpty()) widgetAdapter.clearMultiHistory(panel.id)
                 loaded.forEach { (i, pts) ->
                     widgetAdapter.prependMultiHistory(panel.id, i, pts.map { ChartView.TimePoint(it.t, it.v) })
                 }
@@ -1091,7 +1132,11 @@ class DashboardActivity : AppCompatActivity() {
     /** Обновить открытый полноэкранный график данными из адаптера */
     private fun refreshFullscreen(panelId: Long) {
         val dlg = fullscreenChart ?: return
+        // Только своя карточка и только график: под тем же id могла оказаться
+        // VALUE-панель — её точки в мультирежиме сносят серии диалога
+        if (dlg.panelId != panelId) return
         val panel = widgetAdapter.panelById(panelId) ?: return
+        if (panel.type != WidgetType.CHART && panel.type != WidgetType.MULTI_CHART) return
         val isMulti = panel.type == WidgetType.MULTI_CHART
         dlg.updateData(
             panel,
