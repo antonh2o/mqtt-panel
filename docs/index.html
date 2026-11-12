@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Политика конфиденциальности — MQTT+ Panel</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 24px 20px 64px; max-width: 760px;
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #1b261d; background: #fff;
+  }
+  h1 { font-size: 1.5rem; line-height: 1.3; }
+  h2 { font-size: 1.15rem; margin-top: 2em; }
+  h3 { font-size: 1rem; margin-top: 1.5em; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 15px; }
+  th, td { border: 1px solid #d5ddd4; padding: 7px 10px; text-align: left; vertical-align: top; }
+  code { background: #f0f4ef; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+  .meta { color: #54634f; font-size: 15px; }
+  a { color: #2c6e2a; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #dbe5d8; background: #121712; }
+    th, td { border-color: #3a443a; }
+    code { background: #1d251d; }
+    .meta { color: #9db098; }
+    a { color: #8fc98c; }
+  }
+</style>
+</head>
+<body>
+<h1>Политика конфиденциальности приложения MQTT+ Panel</h1>
+<p class="meta">
+  <strong>Дата вступления в силу:</strong> 12 ноября 2026 г.<br>
+  <strong>Разработчик и ответственное лицо:</strong> Тихонов Антон, <code>antonh2o@gmail.com</code><br>
+  <strong>Приложение:</strong> MQTT+ Panel (пакет <code>ru.mqtt.panel</code>) — дашборд для MQTT-брокеров, платформы narodmon.ru и Grafana.
+</p>
+
+<h2>1. Общие положения</h2>
+<p>Настоящая политика описывает, какие данные обрабатывает приложение MQTT+ Panel, с какой целью, как долго они хранятся и как их удалить. Приложение предназначено для отображения значений с датчиков и топиков, принадлежащих <strong>пользователю</strong>, и работает исключительно с серверами, которые пользователь указывает самостоятельно.</p>
+
+<h2>2. Какие данные обрабатываются и зачем</h2>
+
+<h3>2.1. Учётные данные, вводимые пользователем</h3>
+<ul>
+  <li>адреса, логины и пароли <strong>MQTT-брокеров</strong> пользователя;</li>
+  <li>логин, пароль аккаунта и API-ключ <strong>narodmon.ru</strong>;</li>
+  <li>адрес, логин и пароль <strong>Grafana</strong> (настройки подключения с историей графиков).</li>
+</ul>
+<p><strong>Цель:</strong> подключение к перечисленным сервисам для показа значений и истории графиков.<br>
+<strong>Хранение:</strong> только локально на устройстве, в приватном каталоге приложения (<code>config.json</code>).<br>
+<strong>Передача:</strong> исключительно на сами эти сервисы — брокер, <code>api.narodmon.ru</code>, сервер Grafana пользователя. Пароль narodmon.ru передаётся в виде необратимого хеша <code>MD5(uuid + MD5(пароль))</code>, не чаще одного раза в сутки.</p>
+
+<h3>2.2. OAuth-токен Яндекс Диска</h3>
+<p>Создаётся <strong>только по инициативе пользователя</strong> при настройке резервного копирования настроек на Яндекс Диск. Хранится локально на устройстве, передаётся только в API Яндекс Диска (<code>oauth.yandex.ru</code>, <code>cloud-api.yandex.net</code>). Используется для выгрузки/загрузки файла резервной копии настроек.</p>
+
+<h3>2.3. Технические данные</h3>
+<ul>
+  <li><strong>идентификатор устройства</strong> (MD5, генерируется приложением) — обязательный параметр API narodmon.ru;</li>
+  <li><strong>версия приложения и название</strong> (User-Agent) — в запросе к <code>api.github.com</code> при проверке обновлений;</li>
+  <li><strong>Client ID</strong> MQTT-подключений — генерируется приложением для связи с брокером;</li>
+  <li><strong>журнал работы</strong> (<code>mqtt-import.log</code>: ошибки подключений, результаты опросов) — локально; отправляется разработчику только явным действием пользователя («⋮ → Отправить журнал»).</li>
+</ul>
+
+<h3>2.4. Резервная копия настроек</h3>
+<p>Файл с настройками (подключения, панели) по выбору пользователя сохраняется в файл на устройстве или на его Яндекс Диск. Копия содержит учётные данные из п. 2.1.</p>
+
+<h2>3. Чего приложение НЕ делает</h2>
+<ul>
+  <li>не собирает статистику, аналитику и телеметрию;</li>
+  <li>не показывает рекламу;</li>
+  <li>не передаёт данные рекламным или аналитическим службам и иным третьим лицам;</li>
+  <li>не запрашивает доступ к контактам, геолокации, камере, микрофону, списку установленных приложений;</li>
+  <li>не обращается к файлам за пределами выбираемых пользователем файлов импорта/экспорта.</li>
+</ul>
+
+<h2>4. Разрешения Android, используемые приложением</h2>
+<table>
+  <tr><th>Разрешение</th><th>Назначение</th></tr>
+  <tr><td><code>INTERNET</code></td><td>связь с брокерами, narodmon.ru, Grafana, api.github.com, Яндекс Диск</td></tr>
+  <tr><td><code>FOREGROUND_SERVICE</code>, <code>FOREGROUND_SERVICE_DATA_SYNC</code></td><td>фоновое поддержание MQTT-подключения и опроса датчиков</td></tr>
+  <tr><td><code>POST_NOTIFICATIONS</code></td><td>статус-уведомление «Подключено · время» о работе фонового сервиса</td></tr>
+  <tr><td><code>REQUEST_INSTALL_PACKAGES</code></td><td>установка скачанного обновления по команде пользователя («⋮ → Проверить обновления»); в версиях для магазинов приложений не используется</td></tr>
+</table>
+
+<h2>5. Сторонние сервисы</h2>
+<p>Обработка данных аккаунтов пользователя регулируется политиками соответствующих сервисов: <a href="https://narodmon.ru">narodmon.ru</a>, <a href="https://yandex.ru/legal/confidential/">Яндекс</a>, <a href="https://docs.github.com/ru/site-policy/privacy-policies">GitHub</a>, а также MQTT-брокера и Grafana, настроенных пользователем.</p>
+
+<h2>6. Хранение и удаление данных</h2>
+<ul>
+  <li><strong>Сроки:</strong> данные хранятся локально, пока установлено приложение; резервная копия на Яндекс Диске — до её удаления пользователем.</li>
+  <li><strong>Удаление:</strong> удаление приложения удаляет все локальные данные (настройки, пароли, журналы). Резервную копию на Яндекс Диске удалите в приложении или на Диске. Данные на стороне narodmon.ru (показания датчиков) обрабатываются по правилам платформы.</li>
+  <li>В любой момент можно отозвать разрешение из п. 4 в настройках Android без потери функциональности, кроме описанной у этого разрешения.</li>
+</ul>
+
+<h2>7. Изменения политики</h2>
+<p>Актуальная версия публикуется на этой странице; существенные изменения датируются.</p>
+
+<h2>8. Контакты</h2>
+<p>Вопросы по обработке данных: <strong>Антон Тихонов</strong>, <code>antonh2o@gmail.com</code>. Исходный код приложения открыт: <a href="https://github.com/antonh2o/mqtt-panel">github.com/antonh2o/mqtt-panel</a>.</p>
+</body>
+</html>
