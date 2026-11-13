@@ -971,8 +971,12 @@ class DashboardActivity : AppCompatActivity() {
                 return@launch
             }
             withContext(Dispatchers.Main) {
-                widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
+                // Замена, а не дописывание: при смене периода старая история
+                // другого масштаба должна уйти целиком (см. WidgetAdapter.replaceHistory)
+                widgetAdapter.replaceHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
             }
+            // runtime-кэш тоже замещается (copy перезаписывает history целиком) —
+            // иначе при переоткрытии дашборда из кэша вернулась бы прежняя кривая
             val all = repository.loadRuntimeValues(connectionId).toMutableMap()
             all["${panel.id}"] = (all["${panel.id}"]
                 ?: AppRepository.RuntimeValue()).copy(
@@ -1093,7 +1097,12 @@ class DashboardActivity : AppCompatActivity() {
                 "GRAFANA ${panel.name} ${measurement}/${field} ($tag=${panel.topicSubscribe}) период $period → ${pts.size} точек")
             if (pts.isEmpty()) return "нет данных"
             withContext(Dispatchers.Main) {
-                widgetAdapter.prependHistory(panel.id, pts.map { ChartView.TimePoint(it.t, it.v) })
+                // смена периода (replace) замещает историю целиком — prepend
+                // при заполненном до cap кэше вытеснял бы старые точки нового
+                // периода (тот же механизм, что у Народмона); пакетная загрузка
+                // при открытии дашборда по-прежнему сливает с live-точками
+                if (replace) widgetAdapter.replaceHistory(panel.id, pts.map { ChartView.TimePoint(it.t, it.v) })
+                else widgetAdapter.prependHistory(panel.id, pts.map { ChartView.TimePoint(it.t, it.v) })
             }
             refreshFullscreen(panel.id)
             val all = repository.loadRuntimeValues(connectionId).toMutableMap()

@@ -177,6 +177,22 @@ class WidgetAdapter(
         if (idx >= 0) notifyItemChanged(idx)
     }
 
+    /**
+     * ЗАМЕСТИТЬ историю одиночного графика (смена периода 1d↔1w↔1m↔1y).
+     * prependHistory здесь не годится: старая история забита под потолок (cap),
+     * и после слияния с sort+trim вытесняются как раз старые точки нового
+     * периода — недельная кривая «сливается» с суточной и визуально ничего
+     * не меняется (регрессия после отказа от предочистки в 0.2.58).
+     */
+    fun replaceHistory(panelId: Long, pts: List<ChartView.TimePoint>, cap: Int = 500) {
+        if (pts.isEmpty()) return
+        val merged = pts.distinctBy { it.t }.sortedBy { it.t }.toMutableList()
+        while (merged.size > cap) merged.removeFirst()
+        chartHistory[panelId] = merged
+        val idx = items.indexOfFirst { it.id == panelId }
+        if (idx >= 0) notifyItemChanged(idx)
+    }
+
     /** Точки одиночного графика (копия) для полноэкранного просмотра */
     fun chartPointsOf(panelId: Long): List<ChartView.TimePoint> =
         chartHistory[panelId]?.toList().orEmpty()
