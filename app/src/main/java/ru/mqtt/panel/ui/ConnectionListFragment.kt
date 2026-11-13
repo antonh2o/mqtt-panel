@@ -1,7 +1,9 @@
 package ru.mqtt.panel.ui
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -34,6 +36,26 @@ class ConnectionListFragment : Fragment() {
     /** connectionId -> статус Grafana (заполняется фоновыми проверками) */
     private val grafanaStatus = mutableMapOf<Long, String>()
 
+    /** connectionId -> графана жива (для светодиода); нет записи — проверяется */
+    private val grafanaOk = mutableMapOf<Long, Boolean>()
+
+    /** Светодиоды MQTT/Narodmon обновляются по broadcast'у статусов сервисов */
+    private val statusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            updateRuntimeStates()
+        }
+    }
+
+    private fun updateRuntimeStates() {
+        if (_binding == null) return
+        adapter.setRuntimeStates(
+            ru.mqtt.panel.mqtt.MqttService.activeConnectionId,
+            ru.mqtt.panel.mqtt.MqttService.connectionState,
+            ru.mqtt.panel.mqtt.NarodmonService.connectionState,
+            ru.mqtt.panel.mqtt.NarodmonService.serviceAlive
+        )
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -65,6 +87,20 @@ class ConnectionListFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         loadConnections()
+        // статусы MQTT/Narodmon живут в сервисах — подписываемся на их изменения;
+        // RECEIVER_NOT_EXPORTED обязателен с targetSdk 34 (иначе SecurityException на 13+)
+        androidx.core.content.ContextCompat.registerReceiver(
+            requireContext(),
+            statusReceiver,
+            IntentFilter(ru.mqtt.panel.mqtt.MqttService.BROADCAST_STATUS),
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        updateRuntimeStates()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        runCatching { requireContext().unregisterReceiver(statusReceiver) }
     }
 
     /**
@@ -108,7 +144,9 @@ class ConnectionListFragment : Fragment() {
                     { e -> getString(R.string.grafana_status_error, e.message ?: "ошибка") }
                 )
                 grafanaStatus[conn.id] = text
-                if (_binding != null) adapter.setGrafanaStatus(grafanaStatus.toMap())
+                // светодиод Grafana: зелёный/красный по результату probe
+                grafanaOk[conn.id] = !(text.contains("ошибка") || text.contains("error"))
+                if (_binding != null) adapter.setGrafanaStatus(grafanaStatus.toMap(), grafanaOk.toMap())
             }
         }
     }

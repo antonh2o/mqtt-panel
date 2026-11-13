@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Светодиод статуса на карточке подключения: цвет задаётся кодом
+     (GradientDrawable.setColor в ConnectionListAdapter) -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#9E9E9E" />
+    <size
+        android:width="10dp"
+        android:height="10dp" />
+</shape>

@@ -39,6 +39,87 @@
                 android:textStyle="bold"
                 android:textColor="?attr/colorPrimary" />
 
+            <!-- Светодиоды статуса: MQTT (зелёный = подключено, жёлтый =
+                 подключается, красный = ошибка/обрыв, серый = не активен),
+                 Grafana (по probe /api/health), Narodmon (по состоянию опроса;
+                 серый = сервис ещё не запускался) -->
+            <LinearLayout
+                android:id="@+id/led_row"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:id="@+id/led_box_mqtt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <View
+                        android:id="@+id/led_mqtt"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/led_dot" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/led_mqtt"
+                        android:textSize="11sp"
+                        android:textColor="?android:attr/textColorSecondary" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/led_box_grafana"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <View
+                        android:id="@+id/led_grafana"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/led_dot" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/led_grafana"
+                        android:textSize="11sp"
+                        android:textColor="?android:attr/textColorSecondary" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/led_box_narodmon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <View
+                        android:id="@+id/led_narodmon"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/led_dot" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:text="@string/led_narodmon"
+                        android:textSize="11sp"
+                        android:textColor="?android:attr/textColorSecondary" />
+                </LinearLayout>
+            </LinearLayout>
+
             <TextView
                 android:id="@+id/tv_host"
                 android:layout_width="match_parent"

@@ -56,6 +56,11 @@ class NarodmonService : Service() {
         @Volatile
         var activeConnectionId: Long = -1L
 
+        /** Сервис запущен (опрашивает аккаунт) — для светодиода статуса на
+         *  главном экране: не запущен ≠ ошибка, точка серая, а не красная */
+        @Volatile
+        var serviceAlive: Boolean = false
+
         @Volatile
         var connectedAt: Long = 0L
 
@@ -249,6 +254,7 @@ class NarodmonService : Service() {
     }
 
     override fun onDestroy() {
+        serviceAlive = false
         handler.removeCallbacks(pollLoop)
         scope.cancel()
         super.onDestroy()
