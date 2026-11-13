@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import ru.mqtt.panel.BuildConfig
 import ru.mqtt.panel.data.YandexDisk
 import com.google.gson.Gson
 import kotlinx.coroutines.launch
@@ -148,7 +149,11 @@ class MainActivity : AppCompatActivity() {
             R.id.action_theme_light -> ThemePrefs.LIGHT
             R.id.action_theme_dark -> ThemePrefs.DARK
             R.id.action_theme_auto -> ThemePrefs.SYSTEM
-            R.id.action_check_updates -> { checkForUpdates(manual = true); return true }
+            // store-сборка: пункт меню скрыт флейвором, сюда попасть нельзя
+            R.id.action_check_updates -> {
+                if (!BuildConfig.STORE_BUILD) checkForUpdates(manual = true)
+                return true
+            }
             R.id.action_ya_settings -> { yandexSettings(); return true }
             R.id.action_send_log -> { shareLog(); return true }
             else -> return super.onOptionsItemSelected(item)
@@ -376,10 +381,11 @@ class MainActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(
             statusReceiver, IntentFilter(MqttService.BROADCAST_STATUS)
         )
-        // авто-проверка обновлений не чаще раза в 12 часов
+        // авто-проверка обновлений не чаще раза в 12 часов;
+        // store-сборка не проверяет обновления сама — их ставит магазин
         val prefs = getSharedPreferences("ui", MODE_PRIVATE)
         val last = prefs.getLong("last_update_check", 0L)
-        if (System.currentTimeMillis() - last > 12 * 3600_000L) {
+        if (!BuildConfig.STORE_BUILD && System.currentTimeMillis() - last > 12 * 3600_000L) {
             prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply()
             checkForUpdates(manual = false)
         }

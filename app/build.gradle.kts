@@ -22,6 +22,27 @@ android {
         versionCode = 77
         versionName = "0.2.65"
         vectorDrawables.useSupportLibrary = true
+        // store-сборка выключает самообновление (меню, автопроверку); см. флейворы
+        buildConfigField("boolean", "STORE_BUILD", "false")
+    }
+
+    // Два канала одного приложения:
+    //  standard — обычный APK с самообновлением из GitHub (apk/mqtt-panel-*.apk);
+    //  store    — для магазинов приложений (RuStore и др.): БЕЗ разрешения
+    //             REQUEST_INSTALL_PACKAGES (убирается src/store/AndroidManifest.xml)
+    //             и без «Проверить обновления» (меню и автопроверка) — обновляет
+    //             только магазин. Тот же applicationId (пакет ru.mqtt.panel уже
+    //             заявлен в RuStore), versionCode идёт в ОБЩЕМ ряду со standard,
+    //             чтобы переходы между каналами не были даунгрейдом.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("standard") { dimension = "channel" }
+        create("store") {
+            dimension = "channel"
+            versionNameSuffix = "-store"
+            versionCode = 78
+            buildConfigField("boolean", "STORE_BUILD", "true")
+        }
     }
 
     // Release-подпись своим ключом: debuggable=true и сертификат Android Debug
@@ -52,6 +73,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 

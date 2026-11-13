@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Store-флейвор: суффикс в названии, чтобы версия из магазина
+         отличалась от обычной на ленчере и в настройках -->
+    <string name="app_name">MQTT+ Panel Store</string>
+</resources>

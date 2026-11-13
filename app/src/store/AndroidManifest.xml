@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Store-флейвор: магазины приложений запрещают скачивание/установку APK
+     изнутри приложения — убираем разрешение установки (кнопки обновления
+     из main-кода недостижимы: пункт меню переопределён, автопроверка
+     гейтится BuildConfig.STORE_BUILD). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission
+        android:name="android.permission.REQUEST_INSTALL_PACKAGES"
+        tools:node="remove" />
+</manifest>
