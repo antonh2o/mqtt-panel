@@ -27,6 +27,8 @@ import ru.mqtt.panel.data.ChartSeries
 import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.ImportLog
 import ru.mqtt.panel.data.MqttConnection
+import ru.mqtt.panel.data.MqttTopicFilter
+import ru.mqtt.panel.data.extractJsonLeaves
 import ru.mqtt.panel.data.NarodmonApi
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.Span
@@ -397,9 +399,23 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /**
+     * Строка сканера: либо тема целиком (payload не JSON), либо «датчик» внутри
+     * JSON-темы (topic + jsonPath + последнее значение листа).
+     */
+    private data class ScanRow(
+        val topic: String,
+        val jsonPath: String, // пусто = весь payload
+        val value: String
+    ) {
+        val key: String get() = if (jsonPath.isEmpty()) topic else "$topic::$jsonPath"
+    }
+
+    /**
      * Сканер топиков (как auto-create widgets в linear-mqtt-dashboard):
      * подписываемся на `#`, собираем приходящие темы, показываем список —
      * пользователь отмечает нужные, и для них создаём виджеты.
+     * JSON-темы (village/meteo/meteostation и т.п.) раскрываются в отдельные
+     * датчики-листья с готовым jsonPath — панель создаётся сразу рабочей.
      */
     private fun showScanner() {
         // Сканер подписывается на MQTT-`#` — у narodmon-подключения он скрыт
@@ -410,22 +426,47 @@ class DashboardActivity : AppCompatActivity() {
                 Toast.makeText(this@DashboardActivity, R.string.scan_need_connection, Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val existingFilters = repository.getPanels(connectionId).flatMap { p ->
+            val panels = repository.getPanels(connectionId)
+            val existingFilters = panels.flatMap { p ->
                 // У мультиграфика темы подписок — в сериях
                 if (p.type == WidgetType.MULTI_CHART) p.series.map { it.topic } + p.topicSubscribe
                 else listOf(p.topicSubscribe)
             }.filter { it.isNotBlank() }
+            // (topic, jsonPath) занятые панелями/сериями — такие листья не показываем
+            val coveredPairs = panels.flatMap { p ->
+                if (p.type == WidgetType.MULTI_CHART) {
+                    p.series.filter { it.topic.isNotBlank() && it.jsonPath.isNotBlank() }
+                        .map { "${it.topic}::${it.jsonPath.trim()}" }
+                } else emptyList()
+            }.toSet() + panels.filter { it.topicSubscribe.isNotBlank() && it.jsonPath.isNotBlank() }
+                .map { "${it.topicSubscribe}::${it.jsonPath.trim()}" }
 
             startMqttScan(connection)
 
+            fun buildRows(): List<ScanRow> =
+                MqttService.topics.snapshot(connectionId).flatMap { obs ->
+                    val leaves = if (TopicSuggestions.looksStructured(obs.lastPayload))
+                        extractJsonLeaves(obs.lastPayload)
+                    else emptyList()
+                    if (leaves.isEmpty()) {
+                        // Не-JSON (или JSON без скалярных листьев): тема целиком
+                        if (MqttTopicFilter.coveredByAny(existingFilters, obs.topic)) emptyList()
+                        else listOf(ScanRow(obs.topic, "", obs.lastPayload))
+                    } else {
+                        // JSON: только незакрытые листья-датчики
+                        leaves.filter { "${obs.topic}::${it.path}" !in coveredPairs }
+                            .map { ScanRow(obs.topic, it.path, it.value) }
+                    }
+                }
+
             val selected = sortedSetOf<String>()
-            var rows: List<TopicRegistry.Observed> = emptyList()
-            /** topic -> чекбокс: добавляем только новые темы, иначе прокрутка
+            var rows: List<ScanRow> = emptyList()
+            /** key -> чекбокс: добавляем только новые строки, иначе прокрутка
              *  улетала бы наверх каждую секунду и терялся отметок пользователя */
             val boxes = HashMap<String, android.widget.CheckBox>()
 
             // Высота списка ограничена: без этого диалог растягивается на все
-            // найденные темы, и кнопки «Создать виджеты»/«Отмена» уходят за экран
+            // найденные датчики, и кнопки «Создать виджеты»/«Отмена» уходят за экран
             val scroll = object : android.widget.ScrollView(this@DashboardActivity) {
                 override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                     val maxH = (resources.displayMetrics.heightPixels * 0.45f).toInt()
@@ -456,24 +497,28 @@ class DashboardActivity : AppCompatActivity() {
             }
             container.addView(header)
 
+            fun rowText(row: ScanRow): String =
+                if (row.jsonPath.isEmpty()) row.topic + "\n" + row.value.take(60)
+                else row.topic + "\n" + row.jsonPath + " = " + row.value.take(40)
+
             fun rebuild() {
-                rows = MqttService.topics.uncovered(existingFilters, connectionId)
-                rows.filter { !boxes.containsKey(it.topic) }.forEach { obs ->
+                rows = buildRows()
+                rows.filter { !boxes.containsKey(it.key) }.forEach { row ->
                     val cb = android.widget.CheckBox(this@DashboardActivity).apply {
-                        text = obs.topic + "\n" + obs.lastPayload.take(60)
+                        text = rowText(row)
                         textSize = 13f
-                        isChecked = selected.contains(obs.topic)
+                        isChecked = selected.contains(row.key)
                         setOnCheckedChangeListener { _, checked ->
-                            if (checked) selected.add(obs.topic) else selected.remove(obs.topic)
+                            if (checked) selected.add(row.key) else selected.remove(row.key)
                             updateScanTitle(dialog, rows.size, selected.size)
                         }
                     }
-                    boxes[obs.topic] = cb
+                    boxes[row.key] = cb
                     container.addView(cb)
                 }
-                // Свежее значение под последними темами, без пересборки раскладки
-                rows.takeLast(40).forEach { obs ->
-                    boxes[obs.topic]?.text = obs.topic + "\n" + obs.lastPayload.take(60)
+                // Свежее значение под последними строками, без пересборки раскладки
+                rows.takeLast(40).forEach { row ->
+                    boxes[row.key]?.text = rowText(row)
                 }
                 header.text = if (rows.isEmpty()) getString(R.string.scan_empty)
                 else getString(R.string.scan_found, rows.size)
@@ -493,17 +538,18 @@ class DashboardActivity : AppCompatActivity() {
                 stopMqttScan()
             }
             dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE)?.setOnClickListener {
-                val chosen = rows.filter { selected.contains(it.topic) }
+                val chosen = rows.filter { selected.contains(it.key) }
                 if (chosen.isEmpty()) {
                     Toast.makeText(this@DashboardActivity, R.string.scan_none_picked, Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 lifecycleScope.launch {
-                    chosen.forEach { obs ->
-                        repository.addPanel(
-                            TopicSuggestions.suggest(obs.topic, obs.lastPayload)
-                                .copy(connectionId = connectionId)
-                        )
+                    chosen.forEach { row ->
+                        val panel = if (row.jsonPath.isEmpty())
+                            TopicSuggestions.suggest(row.topic, row.value)
+                        else
+                            TopicSuggestions.suggestJson(row.topic, row.jsonPath, row.value)
+                        repository.addPanel(panel.copy(connectionId = connectionId))
                     }
                     Toast.makeText(
                         this@DashboardActivity,

@@ -36,8 +36,13 @@ class TopicRegistry(private val maxEntries: Int = 5000) {
     }
 
     private fun payloadToString(payload: ByteArray): String {
-        if (payload.size > MAX_PAYLOAD_CHARS) {
-            return String(payload, 0, MAX_PAYLOAD_CHARS, Charsets.UTF_8) + "…"
+        // JSON-сообщения (сканер раскрывает их в датчики) хранятся до 16 КБ —
+        // метеостанция может прислать многокилобайтный payload; обычный текст —
+        // по-прежнему коротко, чтобы 5000 тем не раздували память
+        val first = payload.firstOrNull()?.toChar() ?: ' '
+        val limit = if (first == '{' || first == '[') MAX_JSON_PAYLOAD_CHARS else MAX_PAYLOAD_CHARS
+        if (payload.size > limit) {
+            return String(payload, 0, limit, Charsets.UTF_8) + "…"
         }
         return String(payload, Charsets.UTF_8).replace("\r", " ").replace("\n", " ").trim()
     }
@@ -70,5 +75,6 @@ class TopicRegistry(private val maxEntries: Int = 5000) {
 
     private companion object {
         const val MAX_PAYLOAD_CHARS = 200
+        const val MAX_JSON_PAYLOAD_CHARS = 16 * 1024
     }
 }

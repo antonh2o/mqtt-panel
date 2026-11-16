@@ -37,6 +37,22 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- Пароль сразу под логином: работает и для MQTT, и для Народмона -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="@string/password"
+            app:endIconMode="password_toggle">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textPassword" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
         <!-- Народный Мониторинг: учётные данные — те же, MQTT-поля скрываются -->
         <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/cb_narodmon"
@@ -145,21 +161,6 @@
                 android:text="@string/clean_session" />
 
         </LinearLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/password"
-            app:endIconMode="password_toggle">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_password"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="textPassword" />
-
-        </com.google.android.material.textfield.TextInputLayout>
 
         <!-- История из Grafana (только для MQTT): живые точки остаются из MQTT,
              история чипов 1d/1w/1m/1y тянется из InfluxDB. Общее на подключение. -->

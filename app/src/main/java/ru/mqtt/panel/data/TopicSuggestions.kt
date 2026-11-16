@@ -81,4 +81,41 @@ object TopicSuggestions {
         if (isNumeric(payload)) return base.copy(type = WidgetType.VALUE)
         return base
     }
+
+    /**
+     * Имя датчика из JSON-пути: последний осмысленный текстовый сегмент,
+     * не «value»/«raw»/«time» и не числовой индекс.
+     * «$.light.value.value» → «light», «$.sensors.0.temperature.value» → «temperature».
+     */
+    fun nameFromJsonPath(path: String): String {
+        val parts = path.removePrefix("$").removePrefix(".").split('.').filter { it.isNotBlank() }
+        val meaningful = parts.filter { it != "value" && it != "raw" && it != "time" && it.toIntOrNull() == null }
+        return meaningful.lastOrNull() ?: parts.lastOrNull() ?: path
+    }
+
+    /** Панель для JSON-листа: имя из пути, jsonPath, тип по значению */
+    fun suggestJson(topic: String, jsonPath: String, value: String): Panel {
+        val name = nameFromJsonPath(jsonPath)
+        var type = WidgetType.TEXT
+        var onPayload = "1"
+        var offPayload = "0"
+        if (value.isBlank()) {
+            type = WidgetType.TEXT
+        } else {
+            boolPair(value)?.let { (on, off) ->
+                type = WidgetType.SWITCH
+                onPayload = on
+                offPayload = off
+            }
+            if (type == WidgetType.TEXT && isNumeric(value)) type = WidgetType.VALUE
+        }
+        return Panel(
+            name = name,
+            topicSubscribe = topic,
+            jsonPath = jsonPath,
+            type = type,
+            onPayload = onPayload,
+            offPayload = offPayload
+        )
+    }
 }
