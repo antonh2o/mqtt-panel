@@ -608,6 +608,7 @@ class DashboardActivity : AppCompatActivity() {
 
         root.findViewById<EditText>(R.id.et_name).setText(panel.name)
         root.findViewById<EditText>(R.id.et_topic_sub).setText(panel.topicSubscribe)
+        root.findViewById<EditText>(R.id.et_json_path).setText(panel.jsonPath)
         root.findViewById<EditText>(R.id.et_topic_pub).setText(panel.topicPublish)
         root.findViewById<EditText>(R.id.et_topic_sensor).setText(panel.topicSubscribe)
         root.findViewById<EditText>(R.id.et_qos).setText(panel.qos.toString())
@@ -1295,6 +1296,9 @@ class DashboardActivity : AppCompatActivity() {
         // Тема подписки не нужна: у мультиграфика она в сериях, у narodmon — датчик
         root.findViewById<View>(R.id.layout_topic_sub).visibility =
             if (type == WidgetType.MULTI_CHART || narodmon) View.GONE else View.VISIBLE
+        // JSON-путь — там же, где и тема подписки (мультиграфик — пути в сериях)
+        root.findViewById<View>(R.id.layout_json_path).visibility =
+            if (type == WidgetType.MULTI_CHART || narodmon) View.GONE else View.VISIBLE
         root.findViewById<View>(R.id.layout_topic_pub).visibility =
             if (type == WidgetType.MULTI_CHART || narodmon) View.GONE else View.VISIBLE
         // У narodmon вместо темы — выбор датчика
@@ -1402,8 +1406,20 @@ class DashboardActivity : AppCompatActivity() {
         bottom.addView(dot)
         bottom.addView(etLabel)
 
+        // JSON-путь к значению темы серии (для JSON-payload'ов, например
+        // village/meteo/*): «$.light.value.value»; пусто — весь payload строкой
+        val etJson = EditText(this).apply {
+            hint = getString(R.string.series_json)
+            setText(series?.jsonPath ?: "")
+            textSize = 14f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            val p = (4 * d).toInt()
+            setPadding(p, 0, p, 0)
+        }
+
         row.addView(top)
         row.addView(bottom)
+        row.addView(etJson)
         btnRemove.setOnClickListener { container.removeView(row) }
         container.addView(row)
     }
@@ -1452,13 +1468,16 @@ class DashboardActivity : AppCompatActivity() {
             val etTopic = top.getChildAt(0) as EditText
             val dot = bottom.getChildAt(0) as View
             val etLabel = bottom.getChildAt(1) as EditText
+            // третья строка — JSON-путь (добрали с 0.2.68)
+            val etJson = row.getChildAt(2) as? EditText
             val topic = etTopic.text.toString().trim()
             if (topic.isEmpty()) continue
             result.add(
                 ChartSeries(
                     topic = topic,
                     color = dot.tag as? String ?: CHART_PALETTE[0],
-                    label = etLabel.text.toString().trim()
+                    label = etLabel.text.toString().trim(),
+                    jsonPath = etJson?.text?.toString()?.trim() ?: ""
                 )
             )
         }
@@ -1525,6 +1544,9 @@ class DashboardActivity : AppCompatActivity() {
                 root.findViewById<EditText>(R.id.et_topic_sensor).text.toString().trim()
             } else {
                 root.findViewById<EditText>(R.id.et_topic_sub).text.toString().trim()
+            },
+            jsonPath = if (narodmon) "" else {
+                root.findViewById<EditText>(R.id.et_json_path).text.toString().trim()
             },
             topicPublish = if (narodmon) "" else {
                 root.findViewById<EditText>(R.id.et_topic_pub).text.toString().trim()

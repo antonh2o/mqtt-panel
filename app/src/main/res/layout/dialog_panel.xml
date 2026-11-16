@@ -92,6 +92,23 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- JSON-путь в payload темы (топики с JSON-сообщениями) -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_json_path"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="@string/field_json_path"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/et_json_path"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
         <!-- Народный Мониторинг: вместо темы — выбор датчика из списка -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/layout_topic_sensor"

@@ -15,6 +15,7 @@ import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.Panel
+import ru.mqtt.panel.data.extractJsonPath
 import ru.mqtt.panel.data.WidgetType
 import ru.mqtt.panel.data.parseNumber
 import java.text.SimpleDateFormat
@@ -124,8 +125,15 @@ class WidgetAdapter(
         changed.forEach { notifyItemChanged(it) }
     }
 
-    private fun applyValue(index: Int, value: String, time: Long = System.currentTimeMillis()) {
+    private fun applyValue(index: Int, raw: String, time: Long = System.currentTimeMillis()) {
         val panel = items[index]
+        // JSON-payload: извлекаем значение по пути, иначе показываем весь
+        // payload (число вытаскивается parseNumber ниже). Извлечение не
+        // удалось (payload не JSON / пути нет) — значение не обновляем,
+        // чтобы не записать в панель «сырой JSON» вместо последнего числа
+        val value = if (panel.jsonPath.isNotBlank()) {
+            extractJsonPath(raw, panel.jsonPath) ?: return
+        } else raw
         panel.lastValue = value
         if (time > panel.lastTime) panel.lastTime = time
         if (panel.type == WidgetType.CHART) {
@@ -143,7 +151,13 @@ class WidgetAdapter(
     }
 
     /** Значение для серии мультиграфика (panel.lastValue — последнее из любых её тем) */
-    private fun applyMultiValue(panel: Panel, seriesIndex: Int, value: String, time: Long = System.currentTimeMillis()) {
+    private fun applyMultiValue(panel: Panel, seriesIndex: Int, raw: String, time: Long = System.currentTimeMillis()) {
+        // у серии свой jsonPath (JSON-темы мультиграфика)
+        val series = panel.series.getOrNull(seriesIndex)
+        val path = series?.jsonPath?.trim().orEmpty()
+        val value = if (path.isNotEmpty()) {
+            extractJsonPath(raw, path) ?: return
+        } else raw
         panel.lastValue = value
         multiLastSeries[panel.id] = seriesIndex
         if (time > panel.lastTime) panel.lastTime = time

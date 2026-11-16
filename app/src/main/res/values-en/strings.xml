@@ -79,6 +79,7 @@
     <string name="field_username">Username</string>
     <string name="field_password">Password</string>
     <string name="field_topic_sub">Subscribe topic</string>
+    <string name="field_json_path">JSON path (e.g. $.light.value.value; empty = whole payload)</string>
     <string name="field_unit_suffix">Unit suffix (°C, %, dB)</string>
     <string name="move_mode">Move</string>
     <string name="move_mode_hint">Move mode: long-press a card and drag it. Tap the check mark to finish.</string>
@@ -167,6 +168,7 @@
     <string name="series_title">Chart series</string>
     <string name="series_topic">Topic</string>
     <string name="series_label">Label</string>
+    <string name="series_json">JSON path (e.g. $.light.value.value)</string>
     <string name="series_add">Add series</string>
     <string name="series_remove">Remove series</string>
     <string name="multi_need_series">Add at least one series with a topic</string>

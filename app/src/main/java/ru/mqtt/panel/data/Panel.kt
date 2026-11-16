@@ -9,7 +9,10 @@ import java.io.Serializable
 data class ChartSeries(
     var topic: String = "",
     var color: String = "#4CAF50",
-    var label: String = ""
+    var label: String = "",
+    // JSON-путь к значению в payload темы: «$.light.value.value».
+    // Пусто — весь payload строкой (число вытаскивается parseNumber)
+    var jsonPath: String = ""
 ) : Serializable
 
 /**
@@ -22,6 +25,10 @@ data class Panel(
     var name: String = "",
     var type: WidgetType = WidgetType.VALUE,
     var topicSubscribe: String = "",
+    // JSON-путь к значению в payload темы: «$.light.value.value» (топики с
+    // JSON-сообщениями — village/meteo/*, ESPHome-агрегаторы и т.п.).
+    // Пусто — весь payload строкой (число вытаскивается parseNumber)
+    var jsonPath: String = "",
     var topicPublish: String = "",
     var qos: Int = 0,
     var retained: Boolean = false,

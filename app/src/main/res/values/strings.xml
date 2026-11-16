@@ -80,6 +80,7 @@
     <string name="field_username">Логин</string>
     <string name="field_password">Пароль</string>
     <string name="field_topic_sub">Тема подписки</string>
+    <string name="field_json_path">JSON-путь (например $.light.value.value, пусто — весь payload)</string>
     <string name="field_unit_suffix">Единицы измерения (°C, %, dB)</string>
     <string name="move_mode">Перемещение</string>
     <string name="move_mode_hint">Режим перемещения: зажмите карточку и перетащите. Нажмите галочку, чтобы завершить.</string>
@@ -170,6 +171,7 @@
     <string name="series_title">Серии графика</string>
     <string name="series_topic">Тема</string>
     <string name="series_label">Подпись</string>
+    <string name="series_json">JSON-путь (например $.light.value.value)</string>
     <string name="series_add">Добавить серию</string>
     <string name="series_remove">Убрать серию</string>
     <string name="multi_need_series">Добавьте хотя бы одну серию с темой</string>
