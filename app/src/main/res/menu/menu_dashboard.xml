@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_connect"
+        android:icon="@drawable/ic_play"
+        android:title="@string/connect"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_scan"
+        android:icon="@drawable/ic_mqtt"
+        android:title="@string/scan"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_add"
+        android:icon="@drawable/ic_add"
+        android:title="@string/add"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_move"
+        android:icon="@drawable/ic_move"
+        android:title="@string/move_mode"
+        app:showAsAction="never" />
+
+</menu>

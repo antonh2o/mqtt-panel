@@ -121,35 +121,38 @@ class DashboardActivity : AppCompatActivity() {
         }
         // Рядом со статусом — время в сети: 45 с / 5 мин 12 с / 1 ч 07 мин
         val up = svcUptime()
-        binding.tvStatus.text =
-            if (connected && up >= 0) "$base · ${formatUptime(up)}" else base
         val isConnected = connected || svcState() == ConnectionState.CONNECTED
-        binding.btnConnect.setText(
-            if (isConnected) R.string.disconnect else R.string.connect
-        )
-        // Иконка: ▶ отключено / ⏸ подключено
-        binding.btnConnect.setIconResource(
-            if (isConnected) R.drawable.ic_pause else R.drawable.ic_play
-        )
-        // Цветовой акцент: зелёный подключено, красный отключено
-        if (isConnected) {
-            binding.btnConnect.setBackgroundColor(
-                android.graphics.Color.parseColor("#2E7D32")
-            )
-            binding.btnConnect.setTextColor(android.graphics.Color.WHITE)
-            binding.btnConnect.iconTint =
-                android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
-            binding.btnConnect.setStrokeWidth(0)
-        } else {
-            binding.btnConnect.setBackgroundColor(0xFFEEEEEE.toInt())
-            binding.btnConnect.setTextColor(0xFFD32F2F.toInt())
-            binding.btnConnect.iconTint =
-                android.content.res.ColorStateList.valueOf(0xFFD32F2F.toInt())
-            binding.btnConnect.setStrokeWidth(1)
-            binding.btnConnect.setStrokeColor(
-                android.content.res.ColorStateList.valueOf(0xFFD32F2F.toInt())
-            )
+
+        // --- тулбар: LED + КОМПАКТНЫЙ статус справа от заголовка ---
+        // Полный текст («✓ Подключено · 5 мин») на узком экране наползал
+        // на заголовок — в тулбаре только символ состояния и таймер
+        val statusBar = binding.toolbarStatus
+        val toolbarLed = binding.toolbarLed
+        val toolbarText = binding.tvToolbarStatus
+        statusBar.visibility = View.VISIBLE
+        val compact = when {
+            error != null -> "✗"
+            connecting -> "⟳"
+            isConnected -> if (up >= 0) "✓ ${formatUptime(up)}" else "✓"
+            else -> "✗"
         }
+        toolbarText.text = compact
+        when {
+            error != null || !isConnected && !connecting -> {
+                toolbarLed.setBackgroundColor(android.graphics.Color.parseColor("#E53935"))
+                toolbarText.setTextColor(android.graphics.Color.parseColor("#E53935"))
+            }
+            connecting -> {
+                toolbarLed.setBackgroundColor(android.graphics.Color.parseColor("#F9A825"))
+                toolbarText.setTextColor(android.graphics.Color.parseColor("#F9A825"))
+            }
+            else -> {
+                toolbarLed.setBackgroundColor(android.graphics.Color.parseColor("#43A047"))
+                toolbarText.setTextColor(android.graphics.Color.parseColor("#43A047"))
+            }
+        }
+        // пункт «Подключить/Отключить» в ⋮-меню отражает состояние
+        invalidateOptionsMenu()
     }
 
     /** 45 с → 5 мин 12 с → 1 ч 07 мин */
@@ -232,7 +235,6 @@ class DashboardActivity : AppCompatActivity() {
         binding.tvVersion.text = "v" + (try {
             packageManager.getPackageInfo(packageName, 0).versionName
         } catch (e: Exception) { "?" })
-        applyBottomInset(this, binding.bottomBar)
 
         widgetAdapter = WidgetAdapter(
             onEdit = { panel -> editPanel(panel) },
@@ -255,14 +257,17 @@ class DashboardActivity : AppCompatActivity() {
         binding.recyclerWidgets.layoutManager = grid
         binding.recyclerWidgets.adapter = widgetAdapter
 
-        // Двойной тап по карточке графика — полноэкранный просмотр. Детектор
-        // живёт на RecyclerView, а не на карточках: карточки перебиндиваются
+        // Тап по карточке графика — полноэкранный просмотр. Работает и ОДИНОЧНОЕ,
+        // и ДВОЙНОЕ нажатие: GestureDetector сам разбирает жест —
+        // onSingleTapConfirmed не стреляет, если в пределах double-tap timeout
+        // пришёл второй тап (тогда срабатывает только onDoubleTap).
+        // Детектор живёт на RecyclerView, а не на карточках: карточки перебиндиваются
         // несколько раз в секунду (live-значения), и любой слушатель на itemView
         // сбрасывался посреди жеста — второй тап уже не распознавался.
-        val doubleTapDetector = android.view.GestureDetector(
+        val chartTapDetector = android.view.GestureDetector(
             this,
             object : android.view.GestureDetector.SimpleOnGestureListener() {
-                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                private fun openAt(e: android.view.MotionEvent): Boolean {
                     if (widgetAdapter.moveMode) return false
                     val child = binding.recyclerWidgets.findChildViewUnder(e.x, e.y) ?: return false
                     val holder = binding.recyclerWidgets.getChildViewHolder(child)
@@ -271,6 +276,10 @@ class DashboardActivity : AppCompatActivity() {
                     openFullscreenChart(panel)
                     return true
                 }
+
+                override fun onSingleTapConfirmed(e: android.view.MotionEvent): Boolean = openAt(e)
+
+                override fun onDoubleTap(e: android.view.MotionEvent): Boolean = openAt(e)
             }
         )
         binding.recyclerWidgets.addOnItemTouchListener(
@@ -279,7 +288,7 @@ class DashboardActivity : AppCompatActivity() {
                     rv: androidx.recyclerview.widget.RecyclerView,
                     e: android.view.MotionEvent
                 ): Boolean {
-                    doubleTapDetector.onTouchEvent(e)
+                    chartTapDetector.onTouchEvent(e)
                     return false
                 }
             }
@@ -334,21 +343,47 @@ class DashboardActivity : AppCompatActivity() {
             it.attachToRecyclerView(binding.recyclerWidgets)
         }
 
-        binding.btnMove.setOnClickListener { toggleMoveMode() }
-        binding.btnAddPanel.setOnClickListener { addPanel() }
-        binding.btnConnect.setOnClickListener { toggleConnection() }
-        binding.btnScan.setOnClickListener { showScanner() }
-        binding.tvStatus.setOnClickListener { ensureConnected() }
+        // Кнопки сканера/добавления/перемещения — в меню тулбара (⋮)
+        supportActionBar?.setDisplayShowHomeEnabled(true)
 
         loadConnection()
+    }
+
+    /** Меню дашборда: Подключение / Сканер / Добавить / Перемещение */
+    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
+        menuInflater.inflate(R.menu.menu_dashboard, menu)
+        return true
+    }
+
+    override fun onPrepareOptionsMenu(menu: android.view.Menu): Boolean {
+        // у Narodmon-подключения сканер топиков бессмыслен
+        menu.findItem(R.id.action_scan)?.isVisible = loadedConnection?.narodmon != true
+        menu.findItem(R.id.action_move)?.setIcon(
+            if (widgetAdapter.moveMode) R.drawable.ic_check else R.drawable.ic_move
+        )
+        // пункт подключения отражает текущее состояние
+        val connected = svcState() == ConnectionState.CONNECTED
+        menu.findItem(R.id.action_connect)?.apply {
+            setIcon(if (connected) R.drawable.ic_pause else R.drawable.ic_play)
+            setTitle(if (connected) R.string.disconnect else R.string.connect)
+        }
+        return super.onPrepareOptionsMenu(menu)
+    }
+
+    override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
+        when (item.itemId) {
+            android.R.id.home -> { finish(); return true }
+            R.id.action_connect -> { toggleConnection(); invalidateOptionsMenu(); return true }
+            R.id.action_scan -> { showScanner(); return true }
+            R.id.action_add -> { addPanel(); return true }
+            R.id.action_move -> { toggleMoveMode(); return true }
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     /** Включает/выключает режим перемещения карточек */
     private fun toggleMoveMode() {
         widgetAdapter.moveMode = !widgetAdapter.moveMode
-        binding.btnMove.setIconResource(
-            if (widgetAdapter.moveMode) R.drawable.ic_check else R.drawable.ic_move
-        )
         if (widgetAdapter.moveMode) {
             Toast.makeText(this, R.string.move_mode_hint, Toast.LENGTH_LONG).show()
         } else {
@@ -357,6 +392,7 @@ class DashboardActivity : AppCompatActivity() {
             renderStatus(connected = MqttService.connectionState == ConnectionState.CONNECTED,
                 connecting = MqttService.connectionState == ConnectionState.CONNECTING)
         }
+        invalidateOptionsMenu()
         widgetAdapter.notifyDataSetChanged()
     }
 
@@ -524,8 +560,8 @@ class DashboardActivity : AppCompatActivity() {
             widgetAdapter.grafanaConnectionIds =
                 if (connection.grafanaEnabled()) setOf(connection.id) else emptySet()
 
-            // У narodmon-подключения сканер топиков бессмыслен — прячем кнопку
-            binding.btnScan.visibility = if (connection.narodmon) View.GONE else View.VISIBLE
+            // У narodmon-подключения сканер топиков бессмыслен — прячем пункт меню
+            invalidateOptionsMenu()
 
             // Автоподключение при входе на экран:
             // переподключаемся, если нет соединения ИЛИ соединение к другому подключению

@@ -381,6 +381,8 @@ class WidgetAdapter(
 
         fun bind(panel: Panel) {
             tvName.text = panel.name
+            // подписи топиков скрыты — информация дублируется в заголовке/легенде
+            tvTopic?.visibility = View.GONE
             tvTopic?.text = panel.topicSubscribe.ifBlank {
                 panel.topicPublish.ifBlank { itemView.context.getString(R.string.no_topic) }
             }

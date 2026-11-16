@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.widget.LinearLayout
 import android.widget.TextView
+import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.WidgetType
 
@@ -118,6 +119,19 @@ class FullscreenChartDialog(
             200
         )
         chart.showScale = panel.chartShowScale
+        // Динамический цвет линии по значению (как на карточке):
+        // если заданы colorMin/Mid/Max — линия красится по диапазону,
+        // иначе — одним цветом серии/линии
+        if (panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank()) {
+            chart.valueColorizer = { v ->
+                ColorRange.resolve(
+                    panel.colorMin, panel.colorMid, panel.colorMax,
+                    panel.sliderMin, panel.sliderMax, v.toDouble()
+                ) ?: parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
+            }
+        } else {
+            chart.valueColorizer = null
+        }
         if (isMulti) {
             // Series в ChartView создаются только setMultiSeries — без неё
             // setMultiPoints молча отбрасывал все точки (индекс вне пустого
@@ -132,8 +146,20 @@ class FullscreenChartDialog(
             chart.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
             chart.setPoints(single)
         }
-        // большое значение: цвет последней серии у мультиграфика, цвет линии у графика
-        val valueColor = if (isMulti) {
+        // большое значение: как на карточке — динамический цвет по диапазону
+        // (min→середина→макс от последнего значения), иначе цвет последней
+        // серии мультиграфика / цвет линии одиночного графика
+        val lastV: Float? = if (isMulti) {
+            lastSeriesIdx?.let { multi[it]?.lastOrNull()?.v }
+                ?: multi.values.lastOrNull()?.lastOrNull()?.v
+        } else single.lastOrNull()?.v
+        val dynamic = lastV?.let { v ->
+            ColorRange.resolve(
+                panel.colorMin, panel.colorMid, panel.colorMax,
+                panel.sliderMin, panel.sliderMax, v.toDouble()
+            )
+        }
+        val valueColor = dynamic ?: if (isMulti) {
             lastSeriesIdx?.let { i ->
                 panel.series.getOrNull(i)?.color?.takeIf { it.isNotBlank() }
             }?.let { parseColor(it, Color.WHITE) } ?: Color.WHITE

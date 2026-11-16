@@ -295,18 +295,25 @@ class ChartView @JvmOverloads constructor(
             canvas.drawText(format(minV), 0f, h - 2f * density, scalePaint)
         }
 
-        // шкала времени: метки в начале, середине и конце диапазона
+        // шкала времени: метки с шагом ~120dp, всегда крайние
         val span = tMax - tMin
         val mid = tMin + span / 2
         val labelY = h + timeLabelsH - 3f * density
         timePaint.textAlign = Paint.Align.LEFT
         canvas.drawText(ChartTimeFormat.label(span, tMin), gutter, labelY, timePaint)
-        if (span > 30_000L) {
-            timePaint.textAlign = Paint.Align.CENTER
-            canvas.drawText(ChartTimeFormat.label(span, mid), gutter + w / 2, labelY, timePaint)
-            timePaint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(ChartTimeFormat.label(span, tMax), gutter + w, labelY, timePaint)
+        // промежуточные метки — шаг ~120dp, сглаженный по времени
+        if (span > 60_000L) {
+            val pxPerDp = context.resources.displayMetrics.density
+            val stepPx = 120f * pxPerDp
+            val steps = maxOf(1, (w / stepPx).toInt()).coerceAtMost(12)
+            for (i in 1 until steps) {
+                val tLabel = tMin + i * span / steps
+                timePaint.textAlign = Paint.Align.CENTER
+                canvas.drawText(ChartTimeFormat.label(span, tLabel), gutter + i * w / steps, labelY, timePaint)
+            }
         }
+        timePaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText(ChartTimeFormat.label(span, tMax), gutter + w, labelY, timePaint)
     }
 
     /** Компактная подпись оси: целые без дробной части, крупные — через k */
