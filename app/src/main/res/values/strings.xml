@@ -96,11 +96,21 @@
     <string name="panel_list_empty">Нет панелей. Нажмите + чтобы добавить.</string>
     <string name="no_topic">Нет темы</string>
     <string name="panels_count">Панелей: %1$d</string>
+    <string name="widgets_count">Виджетов: %1$d</string>
+    <string name="connection_enabled">Подключение включено</string>
+    <string name="connection_disabled_toast">Подключение выключено — включите выключатель на карточке</string>
+    <string name="state_disabled">выключено</string>
     <string name="log_saved_to">Журнал: %1$s</string>
     <string name="share_log">Отправить журнал</string>
-    <string name="led_mqtt">MQTT</string>
-    <string name="led_grafana">Grafana</string>
-    <string name="led_narodmon">Narodmon</string>
+    <string name="led_status">%1$s: %2$s</string>
+    <string name="state_connected">подключено</string>
+    <string name="state_connecting">подключение…</string>
+    <string name="state_error">ошибка связи</string>
+    <string name="state_inactive">не подключено</string>
+    <string name="state_checking">проверка…</string>
+    <string name="state_unreachable">не отвечает</string>
+    <string name="state_online">на связи</string>
+    <string name="state_not_started">не запущен</string>
     <string name="demo_loaded_toast">Загружен демо-дашборд: публичный брокер broker.emqx.io, значения обновляются каждые несколько секунд</string>
     <string name="log_empty">Журнал пуст</string>
     <string name="history_unavailable">История не получена: %1$s</string>
@@ -125,9 +135,6 @@
     <string name="grafana_ok">Подключено: Grafana %1$s</string>
     <string name="grafana_fail">Не подключилось: %1$s</string>
     <string name="grafana_need_url">Включите Grafana в настройках подключения</string>
-    <string name="grafana_status_connected_plain">Grafana: подключено</string>
-    <string name="grafana_status_connected">Grafana: подключено (%1$s)</string>
-    <string name="grafana_status_error">Grafana: %1$s</string>
     <string name="gh_hint_conn">Живые точки остаются из MQTT; значение тега = тема подписки (у серий мультиграфика — их темы). Действует на все графики этого подключения.</string>
     <string name="grafana_history">История из Grafana (InfluxDB)</string>
     <string name="gh_measurement">Measurement</string>
@@ -179,15 +186,27 @@
     <!-- Народный Мониторинг -->
     <string name="narodmon_account">Narodmon (аккаунт)</string>
     <string name="narodmon_polling">Опрос датчиков раз в минуту</string>
+    
     <string name="field_pick_sensor">Выбрать датчик</string>
     <string name="add_all_sensors">Добавить все датчики разом</string>
     <string name="sensors_already_added">Все датчики уже добавлены</string>
     <string name="sensors_added_count">Добавлено панелей: %1$d</string>
     <string name="field_history_period">Период истории</string>
+    <string name="period_hour">Час</string>
     <string name="period_day">Сутки</string>
     <string name="period_week">Неделя</string>
     <string name="period_month">Месяц</string>
     <string name="period_year">Год</string>
+    <string name="chip_hour">час</string>
+    <string name="chip_day">ден</string>
+    <string name="chip_week">нед</string>
+    <string name="chip_month">мес</string>
+    <string name="chip_year">год</string>
+    <string name="chip_hour_short">1ч</string>
+    <string name="chip_day_short">1с</string>
+    <string name="chip_week_short">1н</string>
+    <string name="chip_month_short">1м</string>
+    <string name="chip_year_short">1г</string>
     <string name="check_updates">Проверить обновления</string>
     <string name="update_latest">У вас последняя версия</string>
     <string name="update_available">Доступна версия %1$s — скачать?</string>

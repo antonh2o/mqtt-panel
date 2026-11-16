@@ -82,7 +82,9 @@ class AppRepository(private val context: Context) {
             it.copy(
                 narodmon = it.narodmon ?: false,
                 apiKey = it.apiKey ?: "",
-                demo = it.demo ?: false
+                demo = it.demo ?: false,
+                // конфиги до 0.2.71 поля не знают: Gson оставит null → включено
+                enabled = it.enabled ?: true
             ).copy(id = ++cid)
         }
         // ClientID уникален для каждого устройства: брокер разрывает
@@ -131,7 +133,7 @@ class AppRepository(private val context: Context) {
                 // конфиги из 0.2.36–0.2.47 могли хранить в historyPeriod текст-метку
                 // («Сутки») — редактор писал её при сохранении без выбора периода
                 historyPeriod = it.historyPeriod?.takeIf { p ->
-                    p == "day" || p == "week" || p == "month" || p == "year"
+                    p == "hour" || p == "day" || p == "week" || p == "month" || p == "year"
                 } ?: "day",
             )
         }

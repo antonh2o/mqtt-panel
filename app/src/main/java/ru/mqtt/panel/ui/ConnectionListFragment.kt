@@ -20,6 +20,10 @@ import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.MqttConnection
 import ru.mqtt.panel.databinding.FragmentConnectionListBinding
+import ru.mqtt.panel.mqtt.startMqttConnect
+import ru.mqtt.panel.mqtt.startNarodmon
+import ru.mqtt.panel.mqtt.stopMqtt
+import ru.mqtt.panel.mqtt.stopNarodmon
 
 class ConnectionListFragment : Fragment() {
 
@@ -32,9 +36,6 @@ class ConnectionListFragment : Fragment() {
 
     private lateinit var adapter: ConnectionListAdapter
     private lateinit var repository: AppRepository
-
-    /** connectionId -> статус Grafana (заполняется фоновыми проверками) */
-    private val grafanaStatus = mutableMapOf<Long, String>()
 
     /** connectionId -> графана жива (для светодиода); нет записи — проверяется */
     private val grafanaOk = mutableMapOf<Long, Boolean>()
@@ -72,7 +73,8 @@ class ConnectionListFragment : Fragment() {
         adapter = ConnectionListAdapter(
             onConnect = { conn -> openDashboard(conn) },
             onEdit = { conn -> editConnection(conn) },
-            onDelete = { conn -> confirmDeleteConnection(conn) }
+            onDelete = { conn -> confirmDeleteConnection(conn) },
+            onEnabledChange = { conn, enabled -> setConnectionEnabled(conn, enabled) }
         )
         binding.recyclerConnections.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerConnections.adapter = adapter
@@ -87,20 +89,26 @@ class ConnectionListFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         loadConnections()
-        // статусы MQTT/Narodmon живут в сервисах — подписываемся на их изменения;
-        // RECEIVER_NOT_EXPORTED обязателен с targetSdk 34 (иначе SecurityException на 13+)
-        androidx.core.content.ContextCompat.registerReceiver(
-            requireContext(),
-            statusReceiver,
-            IntentFilter(ru.mqtt.panel.mqtt.MqttService.BROADCAST_STATUS),
-            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
-        )
+        // Статусы MQTT/Narodmon живут в сервисах и рассылаются через
+        // LocalBroadcastManager (так же слушает дашборд). Обычный
+        // ContextCompat.registerReceiver эти события НЕ получает — из-за этого
+        // светодиод висел на «не подключено» при живом соединении.
+        androidx.localbroadcastmanager.content.LocalBroadcastManager
+            .getInstance(requireContext())
+            .registerReceiver(
+                statusReceiver,
+                IntentFilter(ru.mqtt.panel.mqtt.MqttService.BROADCAST_STATUS)
+            )
         updateRuntimeStates()
     }
 
     override fun onPause() {
         super.onPause()
-        runCatching { requireContext().unregisterReceiver(statusReceiver) }
+        runCatching {
+            androidx.localbroadcastmanager.content.LocalBroadcastManager
+                .getInstance(requireContext())
+                .unregisterReceiver(statusReceiver)
+        }
     }
 
     /**
@@ -137,16 +145,12 @@ class ConnectionListFragment : Fragment() {
     private fun probeGrafana(connections: List<MqttConnection>) {
         connections.filter { it.grafanaEnabled() }.forEach { conn ->
             viewLifecycleOwner.lifecycleScope.launch {
-                val text = runCatching {
+                val ok = runCatching {
                     ru.mqtt.panel.data.GrafanaApi.probe(ru.mqtt.panel.data.GrafanaApi.settingsOf(conn))
-                }.fold(
-                    { v -> getString(R.string.grafana_status_connected, v) },
-                    { e -> getString(R.string.grafana_status_error, e.message ?: "ошибка") }
-                )
-                grafanaStatus[conn.id] = text
-                // светодиод Grafana: зелёный/красный по результату probe
-                grafanaOk[conn.id] = !(text.contains("ошибка") || text.contains("error"))
-                if (_binding != null) adapter.setGrafanaStatus(grafanaStatus.toMap(), grafanaOk.toMap())
+                }.isSuccess
+                // светодиод и подпись Grafana на карточке: зелёный/красный по probe
+                grafanaOk[conn.id] = ok
+                if (_binding != null) adapter.setGrafanaStatus(grafanaOk.toMap())
             }
         }
     }
@@ -199,6 +203,25 @@ class ConnectionListFragment : Fragment() {
             binding.tvEmpty.visibility =
                 if (connections.isEmpty()) View.VISIBLE else View.GONE
             probeGrafana(connections)
+            autoConnectFirstEnabled(connections)
+        }
+    }
+
+    /**
+     * Главный экран — хаб подключений: если ни одно не поднято (после запуска
+     * приложения, после выключения активного), поднимаем первое включённое.
+     * Иначе карточка со включённым свитчем показывала бы «не подключено».
+     * Работает только когда оба сервиса свободны — иначе вытеснили бы
+     * соединение, открытое в дашборде.
+     */
+    private fun autoConnectFirstEnabled(connections: List<MqttConnection>) {
+        if (ru.mqtt.panel.mqtt.MqttService.activeConnectionId != -1L) return
+        if (ru.mqtt.panel.mqtt.NarodmonService.activeConnectionId != -1L) return
+        val conn = connections.firstOrNull { it.enabled != false } ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val panels = repository.getPanels(conn.id)
+            val ctx = requireContext().applicationContext
+            if (conn.narodmon) ctx.startNarodmon(conn, panels) else ctx.startMqttConnect(conn, panels)
         }
     }
 
@@ -334,7 +357,35 @@ class ConnectionListFragment : Fragment() {
             .show()
     }
 
+    /**
+     * Выключатель подключения на карточке. Включение сразу поднимает сервис
+     * (MQTT/Narodmon) с панелями этого подключения — светодиод на главной
+     * должен показывать реальное состояние, а не «включён, но не подключён».
+     * Выключение гасит активный сервис этого подключения.
+     */
+    private fun setConnectionEnabled(conn: MqttConnection, enabled: Boolean) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            repository.updateConnection(conn.copy(enabled = enabled))
+            val ctx = requireContext().applicationContext
+            if (enabled) {
+                val panels = repository.getPanels(conn.id)
+                if (conn.narodmon) ctx.startNarodmon(conn, panels) else ctx.startMqttConnect(conn, panels)
+            } else {
+                if (ru.mqtt.panel.mqtt.MqttService.activeConnectionId == conn.id) ctx.stopMqtt()
+                if (ru.mqtt.panel.mqtt.NarodmonService.activeConnectionId == conn.id) ctx.stopNarodmon()
+            }
+            loadConnections()
+        }
+    }
+
     private fun openDashboard(conn: MqttConnection) {
+        // выключенное подключение не открываем: данных в нём не будет,
+        // а пользователь ждёт живой дашборд — вежливо говорим почему
+        if (conn.enabled == false) {
+            Toast.makeText(requireContext(), R.string.connection_disabled_toast, Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
         startActivity(
             Intent(requireContext(), DashboardActivity::class.java)
                 .putExtra(DashboardActivity.EXTRA_CONNECTION_ID, conn.id)

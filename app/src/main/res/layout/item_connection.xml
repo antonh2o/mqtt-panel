@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
+    android:layout_marginBottom="6dp"
     android:clickable="true"
     android:foreground="?attr/selectableItemBackground"
     app:cardElevation="1dp"
@@ -12,179 +12,188 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="16dp"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:padding="12dp">
 
+        <!-- Шапка: название + выключатель подключения + правка и удаление -->
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
                 android:id="@+id/tv_name"
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:ellipsize="end"
                 android:textSize="17sp"
                 android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/tv_type"
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/sw_enabled"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="1dp"
-                android:textAllCaps="true"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorPrimary" />
+                android:layout_marginStart="4dp"
+                android:contentDescription="@string/connection_enabled"
+                android:scaleX="0.8"
+                android:scaleY="0.8"
+                app:switchMinWidth="32dp" />
 
-            <!-- Светодиоды статуса: MQTT (зелёный = подключено, жёлтый =
-                 подключается, красный = ошибка/обрыв, серый = не активен),
-                 Grafana (по probe /api/health), Narodmon (по состоянию опроса;
-                 серый = сервис ещё не запускался) -->
+            <ImageButton
+                android:id="@+id/btn_edit"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="4dp"
+                android:src="@drawable/ic_edit"
+                android:contentDescription="@string/edit_connection"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+
+            <ImageButton
+                android:id="@+id/btn_delete"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:padding="4dp"
+                android:src="@drawable/ic_delete"
+                android:contentDescription="@string/delete_connection"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+
+        </LinearLayout>
+
+        <!-- Статусы сервисов: светодиод + подпись со смыслом цвета
+             (зелёный = подключено, жёлтый = подключается/проверка,
+             красный = ошибка/нет связи, серый = не активно / не запущен).
+             Показываются только применимые: MQTT, Grafana (если включена),
+             Narodmon (для аккаунта Народного Мониторинга) -->
+        <LinearLayout
+            android:id="@+id/led_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
             <LinearLayout
-                android:id="@+id/led_row"
+                android:id="@+id/led_box_mqtt"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
+                android:layout_marginEnd="12dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
-                <LinearLayout
-                    android:id="@+id/led_box_mqtt"
+                <View
+                    android:id="@+id/led_mqtt"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/led_dot" />
+
+                <TextView
+                    android:id="@+id/tv_led_mqtt"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="12dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <View
-                        android:id="@+id/led_mqtt"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:background="@drawable/led_dot" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/led_mqtt"
-                        android:textSize="11sp"
-                        android:textColor="?android:attr/textColorSecondary" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/led_box_grafana"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="12dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <View
-                        android:id="@+id/led_grafana"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:background="@drawable/led_dot" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/led_grafana"
-                        android:textSize="11sp"
-                        android:textColor="?android:attr/textColorSecondary" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/led_box_narodmon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <View
-                        android:id="@+id/led_narodmon"
-                        android:layout_width="10dp"
-                        android:layout_height="10dp"
-                        android:background="@drawable/led_dot" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:text="@string/led_narodmon"
-                        android:textSize="11sp"
-                        android:textColor="?android:attr/textColorSecondary" />
-                </LinearLayout>
+                    android:layout_marginStart="4dp"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
             </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/led_box_grafana"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:id="@+id/led_grafana"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/led_dot" />
+
+                <TextView
+                    android:id="@+id/tv_led_grafana"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/led_box_narodmon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <View
+                    android:id="@+id/led_narodmon"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:background="@drawable/led_dot" />
+
+                <TextView
+                    android:id="@+id/tv_led_narodmon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Брокер + счётчик виджетов одной строкой (компактно) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
                 android:id="@+id/tv_host"
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:textSize="14sp"
+                android:layout_weight="1"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="13sp"
                 android:textColor="?android:attr/textColorSecondary" />
 
             <TextView
                 android:id="@+id/tv_panels"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:textSize="13sp"
-                android:textColor="?attr/colorPrimary" />
-
-            <TextView
-                android:id="@+id/tv_gh_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:textSize="12sp"
-                android:textColor="?android:attr/textColorSecondary"
-                android:visibility="gone" />
-
-            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tv_ssl"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tv_ws"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:textSize="12sp" />
-
-            </LinearLayout>
-
+                android:layout_marginStart="8dp"
+                android:textSize="12sp"
+                android:textColor="?attr/colorPrimary" />
         </LinearLayout>
 
-        <ImageButton
-            android:id="@+id/btn_edit"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:src="@drawable/ic_edit"
-            android:contentDescription="@string/edit_connection"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+        <!-- Флаги транспорта: строка целиком скрывается, если флагов нет —
+             иначе у карточки остаётся пустой отступ снизу -->
+        <LinearLayout
+            android:id="@+id/flags_row"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:orientation="horizontal">
 
-        <ImageButton
-            android:id="@+id/btn_delete"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="4dp"
-            android:src="@drawable/ic_delete"
-            android:contentDescription="@string/delete_connection"
-            android:background="?attr/selectableItemBackgroundBorderless" />
+            <TextView
+                android:id="@+id/tv_ssl"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tv_ws"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp" />
+
+        </LinearLayout>
 
     </LinearLayout>
 

@@ -17,14 +17,12 @@ import ru.mqtt.panel.mqtt.ConnectionState
 class ConnectionListAdapter(
     private val onConnect: (MqttConnection) -> Unit,
     private val onEdit: (MqttConnection) -> Unit,
-    private val onDelete: (MqttConnection) -> Unit
+    private val onDelete: (MqttConnection) -> Unit,
+    private val onEnabledChange: (MqttConnection, Boolean) -> Unit
 ) : ListAdapter<MqttConnection, ConnectionListAdapter.ViewHolder>(DiffCallback()) {
 
     /** connectionId -> количество панелей (для диагностики импорта) */
     private var panelCounts: Map<Long, Int> = emptyMap()
-
-    /** connectionId -> статус Grafana («подключено (v10.2)» / текст ошибки) */
-    private var grafanaStatus: Map<Long, String> = emptyMap()
 
     /** connectionId -> графана жива (по probe); null — ещё проверяется */
     private var grafanaOk: Map<Long, Boolean> = emptyMap()
@@ -46,8 +44,7 @@ class ConnectionListAdapter(
         notifyItemRangeChanged(0, itemCount)
     }
 
-    fun setGrafanaStatus(status: Map<Long, String>, ok: Map<Long, Boolean>) {
-        grafanaStatus = status
+    fun setGrafanaStatus(ok: Map<Long, Boolean>) {
         grafanaOk = ok
         notifyItemRangeChanged(0, itemCount)
     }
@@ -78,12 +75,13 @@ class ConnectionListAdapter(
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val tvName: TextView = view.findViewById(R.id.tv_name)
-        private val tvType: TextView = view.findViewById(R.id.tv_type)
         private val tvHost: TextView = view.findViewById(R.id.tv_host)
         private val tvPanels: TextView = view.findViewById(R.id.tv_panels)
-        private val tvGhStatus: TextView = view.findViewById(R.id.tv_gh_status)
         private val tvSsl: TextView = view.findViewById(R.id.tv_ssl)
         private val tvWs: TextView = view.findViewById(R.id.tv_ws)
+        private val flagsRow: LinearLayout = view.findViewById(R.id.flags_row)
+        private val swEnabled: com.google.android.material.materialswitch.MaterialSwitch =
+            view.findViewById(R.id.sw_enabled)
         private val btnEdit: ImageButton = view.findViewById(R.id.btn_edit)
         private val btnDelete: ImageButton = view.findViewById(R.id.btn_delete)
 
@@ -93,22 +91,24 @@ class ConnectionListAdapter(
         private val ledMqtt: View = view.findViewById(R.id.led_mqtt)
         private val ledGrafana: View = view.findViewById(R.id.led_grafana)
         private val ledNarodmon: View = view.findViewById(R.id.led_narodmon)
+        private val tvLedMqtt: TextView = view.findViewById(R.id.tv_led_mqtt)
+        private val tvLedGrafana: TextView = view.findViewById(R.id.tv_led_grafana)
+        private val tvLedNarodmon: TextView = view.findViewById(R.id.tv_led_narodmon)
 
         private fun paint(v: View, color: Int) {
             val bg = v.background.mutate()
             if (bg is GradientDrawable) bg.setColor(color)
         }
 
-        private fun colorOf(state: ConnectionState?): Int = when (state) {
-            ConnectionState.CONNECTED -> cGreen
-            ConnectionState.CONNECTING -> cYellow
-            else -> cRed
+        /** Светодиод + подпись одним цветом: цвет и есть расшифровка статуса */
+        private fun status(led: View, label: TextView, color: Int, text: String) {
+            paint(led, color)
+            label.text = text
+            label.setTextColor(color)
         }
 
         fun bind(conn: MqttConnection) {
             tvName.text = conn.name
-            // заголовок типа: mqtt / mqtt+grafana / narodmon
-            tvType.text = conn.typeLabel()
             tvHost.text = if (conn.narodmon) {
                 // аккаунт Народного Мониторинга: хост фиксированный, важен логин
                 "narodmon.ru · ${conn.username.ifBlank { "без логина" }}"
@@ -116,41 +116,78 @@ class ConnectionListAdapter(
                 "${conn.host}:${conn.port}"
             }
             val count = panelCounts[conn.id] ?: 0
-            tvPanels.text = itemView.context.getString(R.string.panels_count, count)
-            tvSsl.text = if (conn.narodmon) "" else if (conn.ssl) "🔒SSL " else ""
-            tvWs.text = if (conn.narodmon) "" else if (conn.websocket) "WS " else ""
-            if (conn.grafanaEnabled()) {
-                tvGhStatus.visibility = View.VISIBLE
-                tvGhStatus.text = grafanaStatus[conn.id]
-                    ?: itemView.context.getString(R.string.grafana_status_connected)
-            } else {
-                tvGhStatus.visibility = View.GONE
+            tvPanels.text = itemView.context.getString(R.string.widgets_count, count)
+            tvSsl.text = if (conn.narodmon) "" else if (conn.ssl) "🔒SSL" else ""
+            tvWs.text = if (conn.narodmon) "" else if (conn.websocket) "WS" else ""
+            // пустую строку флагов убираем целиком — иначе у карточки
+            // остаётся пустой отступ снизу
+            flagsRow.visibility =
+                if (tvSsl.text.isEmpty() && tvWs.text.isEmpty()) View.GONE else View.VISIBLE
+
+            // Выключатель подключения: слушатель снимаем перед установкой,
+            // иначе setChecked на рецикле дёрнет колбэк чужой карточки
+            swEnabled.setOnCheckedChangeListener(null)
+            swEnabled.isChecked = conn.enabled != false
+            swEnabled.setOnCheckedChangeListener { _, checked ->
+                onEnabledChange(conn, checked)
             }
 
-            // --- светодиоды статусов ---
-            if (conn.narodmon) {
-                // у аккаунта Народмона MQTT/Grafana не применимы; точка серая,
+            // --- статусы сервисов: светодиод + подпись-расшифровка ---
+            val ctx = itemView.context
+            fun label(name: String, state: String) =
+                ctx.getString(R.string.led_status, name, state)
+
+            if (conn.enabled == false) {
+                // выключенный выключателем: серый статус, без активных сервисов
+                ledBoxMqtt.visibility = if (conn.narodmon) View.GONE else View.VISIBLE
+                ledBoxGrafana.visibility = View.GONE
+                ledBoxNarodmon.visibility = if (conn.narodmon) View.VISIBLE else View.GONE
+                val text = ctx.getString(R.string.state_disabled)
+                if (conn.narodmon) {
+                    status(ledNarodmon, tvLedNarodmon, cGray, label("Narodmon", text))
+                } else {
+                    status(ledMqtt, tvLedMqtt, cGray, label("MQTT", text))
+                }
+            } else if (conn.narodmon) {
+                // у аккаунта Народмона MQTT/Grafana не применимы; статус серый,
                 // пока сервис опроса ни разу не запускался (это не ошибка)
                 ledBoxMqtt.visibility = View.GONE
                 ledBoxGrafana.visibility = View.GONE
                 ledBoxNarodmon.visibility = View.VISIBLE
-                paint(ledNarodmon, if (!nmAlive) cGray else colorOf(nmState))
+                if (!nmAlive) {
+                    status(ledNarodmon, tvLedNarodmon, cGray,
+                        label("Narodmon", ctx.getString(R.string.state_not_started)))
+                } else {
+                    val (color, text) = when (nmState) {
+                        ConnectionState.CONNECTED -> cGreen to ctx.getString(R.string.state_online)
+                        ConnectionState.CONNECTING -> cYellow to ctx.getString(R.string.state_connecting)
+                        else -> cRed to ctx.getString(R.string.state_error)
+                    }
+                    status(ledNarodmon, tvLedNarodmon, color, label("Narodmon", text))
+                }
             } else {
                 ledBoxNarodmon.visibility = View.GONE
                 ledBoxMqtt.visibility = View.VISIBLE
-                // сервис держит одно соединение: карточка не активна — серый
+                // сервис держит одно соединение: карточка не активна — серая
                 if (conn.id == mqttActiveId && mqttState != null) {
-                    paint(ledMqtt, colorOf(mqttState))
+                    val (color, text) = when (mqttState) {
+                        ConnectionState.CONNECTED -> cGreen to ctx.getString(R.string.state_connected)
+                        ConnectionState.CONNECTING -> cYellow to ctx.getString(R.string.state_connecting)
+                        else -> cRed to ctx.getString(R.string.state_error)
+                    }
+                    status(ledMqtt, tvLedMqtt, color, label("MQTT", text))
                 } else {
-                    paint(ledMqtt, cGray)
+                    status(ledMqtt, tvLedMqtt, cGray,
+                        label("MQTT", ctx.getString(R.string.state_inactive)))
                 }
                 if (conn.grafanaEnabled()) {
                     ledBoxGrafana.visibility = View.VISIBLE
-                    paint(ledGrafana, when (grafanaOk[conn.id]) {
-                        true -> cGreen
-                        false -> cRed
-                        null -> cYellow // probe ещё не ответил
-                    })
+                    val (color, text) = when (grafanaOk[conn.id]) {
+                        true -> cGreen to ctx.getString(R.string.state_connected)
+                        false -> cRed to ctx.getString(R.string.state_unreachable)
+                        null -> cYellow to ctx.getString(R.string.state_checking)
+                    }
+                    status(ledGrafana, tvLedGrafana, color, label("Grafana", text))
                 } else {
                     ledBoxGrafana.visibility = View.GONE
                 }

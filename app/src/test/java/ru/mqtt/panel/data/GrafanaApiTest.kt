@@ -75,6 +75,7 @@ class GrafanaApiTest {
 
     @Test
     fun periodSpanDefaults() {
+        assertEquals(H, GrafanaApi.periodSpan("hour"))
         assertEquals(24L * H, GrafanaApi.periodSpan("day"))
         assertEquals(7L * 24 * H, GrafanaApi.periodSpan("week"))
         assertEquals(30L * 24 * H, GrafanaApi.periodSpan("month"))

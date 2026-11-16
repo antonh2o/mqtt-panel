@@ -19,4 +19,10 @@ object ChartTimeFormat {
 
     fun label(spanMs: Long, timeMs: Long): String =
         SimpleDateFormat(pattern(spanMs), Locale.getDefault()).format(Date(timeMs))
+
+    /** Подпись в подсказке под пальцем: время, а для длинных периодов — с датой */
+    fun tooltipLabel(timeMs: Long): String {
+        val fmt = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault())
+        return fmt.format(Date(timeMs))
+    }
 }

@@ -10,12 +10,12 @@ import java.util.Locale
 /**
  * Журнал импорта/экспорта: пишется в файл, чтобы можно было
  * прислать на отладку без подключения по adb.
- * Файл: Android/data/ru.mqtt.panel/files/mqtt-import.log
+ * Файл: Android/data/ru.mqtt.panel/files/mqtt-panel.log
  */
 object ImportLog {
 
     private const val TAG = "ImportLog"
-    private const val FILE_NAME = "mqtt-import.log"
+    private const val FILE_NAME = "mqtt-panel.log"
     private val timeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
     private fun logFile(context: Context): File {

@@ -39,8 +39,9 @@ object GrafanaApi {
         dsUid = conn.ghDsUid.orEmpty()
     )
 
-    /** Длительность периода чипов 1d/1w/1m/1y в мс */
+    /** Длительность периода чипов 1ч/1с/1н/1м/1г в мс */
     fun periodSpan(period: String): Long = when (period) {
+        "hour" -> 3600_000L
         "week" -> 7L * 24 * 3600_000L
         "month" -> 30L * 24 * 3600_000L
         "year" -> 365L * 24 * 3600_000L

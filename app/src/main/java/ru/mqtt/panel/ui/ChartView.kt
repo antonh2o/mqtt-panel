@@ -3,12 +3,17 @@ package ru.mqtt.panel.ui
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.pow
 
 /**
  * Линейный график (замена AndroidPlot из narmon-client).
@@ -92,6 +97,9 @@ class ChartView @JvmOverloads constructor(
         color = withAlpha(DEFAULT_COLOR, GRID_ALPHA)
     }
 
+    /** Пунктир для сетки (как в референсе Народмон): короткое тире + пробел */
+    private val dash = android.graphics.DashPathEffect(floatArrayOf(5f * density, 5f * density), 0f)
+
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = withAlpha(DEFAULT_COLOR, FILL_ALPHA)
@@ -110,6 +118,109 @@ class ChartView @JvmOverloads constructor(
 
     private val path = Path()
     private val fillPath = Path()
+
+    // --- подсказка под пальцем (крестовина) ---
+    private var touchT: Long? = null
+    private var layoutGutter = 0f
+    private var layoutW = 0f
+    private var layoutH = 0f
+    private var layoutTMin = 0L
+    private var layoutSpan = 1L
+
+    private val crossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
+        color = withAlpha(NEUTRAL_COLOR, 70)
+    }
+
+    private val bubblePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xE6212124.toInt()
+    }
+
+    private val bubbleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 9.5f * density
+        color = Color.WHITE
+    }
+
+    private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+    }
+
+    /** Сбросить крестовину (например, при смене периода или уходе с графика) */
+    fun clearTouchHighlight() {
+        if (touchT != null) {
+            touchT = null
+            invalidate()
+        }
+    }
+
+    /**
+     * Горизонтальный свайп по графику: -1 — предыдущий период, +1 — следующий.
+     * Живёт здесь, а не в OnTouchListener снаружи: касание по графику должно
+     * одновременно показывать значение под пальцем и не мешать вертикальной
+     * прокрутке списка (её забирает RecyclerView через ACTION_CANCEL).
+     */
+    var onPeriodSwipe: ((Int) -> Unit)? = null
+
+    private var downX = 0f
+    private var downY = 0f
+
+    override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (series.none { it.points.size >= 2 } || layoutSpan <= 0L || layoutW <= 0f) {
+            return super.onTouchEvent(event)
+        }
+        when (event.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                showAt(event.x)
+                return true
+            }
+            android.view.MotionEvent.ACTION_MOVE -> {
+                // Вертикальное движение — это прокрутка списка: отдаём жест
+                // родителю (он пришлёт CANCEL, крестовина уберётся). Иначе
+                // держим жест сами, чтобы крестовина не мигала.
+                val dx = abs(event.x - downX)
+                val dy = abs(event.y - downY)
+                if (dy > 12f * density && dy > dx * 1.5f) {
+                    touchT = null
+                    invalidate()
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    return false
+                }
+                parent?.requestDisallowInterceptTouchEvent(true)
+                showAt(event.x)
+                return true
+            }
+            android.view.MotionEvent.ACTION_UP -> {
+                val dx = event.x - downX
+                val dy = event.y - downY
+                touchT = null
+                invalidate()
+                parent?.requestDisallowInterceptTouchEvent(false)
+                val minDx = 60f * density
+                if (onPeriodSwipe != null && abs(dx) > minDx && abs(dx) > abs(dy) * 1.5f) {
+                    onPeriodSwipe?.invoke(if (dx < 0) 1 else -1)
+                }
+                return true
+            }
+            android.view.MotionEvent.ACTION_CANCEL -> {
+                touchT = null
+                invalidate()
+                parent?.requestDisallowInterceptTouchEvent(false)
+                return false
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    private fun showAt(px: Float) {
+        val clamped = px.coerceIn(layoutGutter, layoutGutter + layoutW)
+        touchT = layoutTMin + ((clamped - layoutGutter) / layoutW * layoutSpan).toLong()
+        invalidate()
+    }
 
     // --- однолинейный режим ---
 
@@ -195,20 +306,27 @@ class ChartView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val gutter = if (showScale) scalePaint.measureText("000000") + 4f * density else 0f
+        val gutter = if (showScale) scalePaint.measureText("-0000.00") + 4f * density else 0f
         val timeLabelsH = 17f * density
         val w = width - gutter
         val h = height - timeLabelsH
         if (w <= 0f) return
 
-        // горизонтальная сетка
-        for (i in 1..3) {
-            val y = h * i / 4f
-            canvas.drawLine(gutter, y, gutter + w, y, gridPaint)
-        }
-
         val drawable = series.filter { it.points.size >= 2 }
-        if (drawable.isEmpty()) return
+        if (drawable.isEmpty()) {
+            // без данных — каркас из пунктирных линий: карточка не «пустеет»
+            gridPaint.pathEffect = dash
+            for (i in 1..3) {
+                val gy = h * i / 4f
+                canvas.drawLine(gutter, gy, gutter + w, gy, gridPaint)
+            }
+            for (i in 1..3) {
+                val gx = gutter + w * i / 4f
+                canvas.drawLine(gx, 0f, gx, h, gridPaint)
+            }
+            gridPaint.pathEffect = null
+            return
+        }
 
         // общий масштаб по значениям и по времени — линии не разъезжаются
         var minV = Float.MAX_VALUE
@@ -226,13 +344,79 @@ class ChartView @JvmOverloads constructor(
             maxV += 1f
         }
         if (tMax == tMin) tMax = tMin + 1
-        val range = maxV - minV
+
+        // «Красивые» границы шкалы: шаг 1/2/5 × 10^n — сетка и подписи
+        // попадают на ровные значения (как в референсе Народмон: 2/0/-2/-4)
+        val rawStep = (maxV - minV) / 3f
+        val mag = 10.0.pow(floor(ln(rawStep) / ln(10.0)))
+        val norm = rawStep / mag
+        val niceMult = when {
+            norm <= 1.0 -> 1.0
+            norm <= 2.0 -> 2.0
+            norm <= 5.0 -> 5.0
+            else -> 10.0
+        }
+        val step = (niceMult * mag).toFloat()
+        val niceMin = floor(minV / step) * step
+        val niceMax = ceil(maxV / step) * step
+        val range = niceMax - niceMin
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
 
         fun x(t: Long) = gutter + (t - tMin).toFloat() / (tMax - tMin) * w
-        fun y(v: Float) = h - (v - minV) / range * usableH - 4f * density
+        fun y(v: Float) = h - (v - niceMin) / range * usableH - 4f * density
 
+        // Сетка: горизонтальные пунктирные линии по «красивым» уровням шкалы
+        // с подписью значения прямо на линии + вертикальные по отметкам времени.
+        gridPaint.pathEffect = dash
+        var level = niceMin
+        while (level <= niceMax + step / 2) {
+            val gy = y(level)
+            if (gy in 0f..h) {
+                canvas.drawLine(gutter, gy, gutter + w, gy, gridPaint)
+                scalePaint.textAlign = Paint.Align.RIGHT
+                canvas.drawText(format(level), gutter - 3f * density, gy + 3.5f * density, scalePaint)
+            }
+            level += step
+        }
+
+        // вертикальные линии — в тех же позициях, что подписи времени снизу.
+        // Число меток ограничено шириной подписи: «14:21:27» при шаге на глаз
+        // наезжала на соседнюю, подписи шли внахлёст.
+        val span = tMax - tMin
+        val labelW = timePaint.measureText(ChartTimeFormat.label(span, tMax))
+        val minStepPx = labelW + 8f * density
+        val vSteps = if (span > 60_000L && minStepPx > 0f) {
+            maxOf(0, (w / minStepPx).toInt() - 1).coerceAtMost(12)
+        } else 0
+        // Промежуточные метки: без повторов подписи (на неделе соседние метки
+        // дают одно и то же «15.11») и без наезда на уже поставленную.
+        val midTicks = ArrayList<Pair<Float, Long>>()
+        var lastText = ChartTimeFormat.label(span, tMin)
+        var lastRight = gutter + labelW + 4f * density
+        for (i in 1..vSteps) {
+            val gx = gutter + i * w / (vSteps + 1)
+            val t = tMin + i * span / (vSteps + 1)
+            val text = ChartTimeFormat.label(span, t)
+            if (text == lastText) continue
+            if (gx - labelW / 2 < lastRight) continue
+            midTicks += gx to t
+            lastText = text
+            lastRight = gx + labelW / 2 + 4f * density
+        }
+        // правая крайняя подпись приоритетнее последней промежуточной:
+        // снимаем её, если она повторяет текст правой или наезжает на неё
+        val rightText = ChartTimeFormat.label(span, tMax)
+        while (midTicks.isNotEmpty()) {
+            val (gx, t) = midTicks.last()
+            val clash = gutter + w - labelW < gx + labelW / 2 + 4f * density ||
+                ChartTimeFormat.label(span, t) == rightText
+            if (!clash) break
+            midTicks.removeAt(midTicks.lastIndex)
+        }
+        midTicks.forEach { (gx, _) -> canvas.drawLine(gx, 0f, gx, h, gridPaint) }
+        gridPaint.pathEffect = null
+        scalePaint.textAlign = Paint.Align.LEFT
         drawable.forEach { s ->
             // Линия по сегментам: с динамической раскраской каждый сегмент и каждая
             // точка красятся цветом своего значения; иначе — одним цветом серии.
@@ -290,30 +474,113 @@ class ChartView @JvmOverloads constructor(
             }
         }
 
-        if (showScale) {
-            canvas.drawText(format(maxV), 0f, topPad, scalePaint)
-            canvas.drawText(format(minV), 0f, h - 2f * density, scalePaint)
-        }
-
-        // шкала времени: метки с шагом ~120dp, всегда крайние
-        val span = tMax - tMin
-        val mid = tMin + span / 2
+        // шкала времени: крайние метки + промежуточные с тем же шагом, что у сетки
         val labelY = h + timeLabelsH - 3f * density
         timePaint.textAlign = Paint.Align.LEFT
         canvas.drawText(ChartTimeFormat.label(span, tMin), gutter, labelY, timePaint)
-        // промежуточные метки — шаг ~120dp, сглаженный по времени
-        if (span > 60_000L) {
-            val pxPerDp = context.resources.displayMetrics.density
-            val stepPx = 120f * pxPerDp
-            val steps = maxOf(1, (w / stepPx).toInt()).coerceAtMost(12)
-            for (i in 1 until steps) {
-                val tLabel = tMin + i * span / steps
-                timePaint.textAlign = Paint.Align.CENTER
-                canvas.drawText(ChartTimeFormat.label(span, tLabel), gutter + i * w / steps, labelY, timePaint)
-            }
+        timePaint.textAlign = Paint.Align.CENTER
+        midTicks.forEach { (gx, t) ->
+            canvas.drawText(ChartTimeFormat.label(span, t), gx, labelY, timePaint)
         }
         timePaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(ChartTimeFormat.label(span, tMax), gutter + w, labelY, timePaint)
+
+        // запоминаем геометрию: по ней переводим касание в момент времени
+        layoutGutter = gutter
+        layoutW = w
+        layoutH = h
+        layoutTMin = tMin
+        layoutSpan = span
+
+        drawTouchHighlight(canvas, gutter, w, h, tMin, span, ::x, ::y)
+    }
+
+    /**
+     * Крестовина под пальцем: вертикаль по времени, точки серий на этом моменте
+     * и пузырь «время + значения». Значения интерполируются по соседним точкам,
+     * поэтому подсказка плавно едет за пальцем, а не прыгает по измерениям.
+     */
+    private fun drawTouchHighlight(
+        canvas: Canvas,
+        gutter: Float,
+        w: Float,
+        h: Float,
+        tMin: Long,
+        span: Long,
+        x: (Long) -> Float,
+        y: (Float) -> Float
+    ) {
+        val t = touchT ?: return
+        if (span <= 0L || w <= 0f) return
+        val px = x(t)
+        if (px < gutter - 1f || px > gutter + w + 1f) return
+        crossPaint.color = withAlpha(NEUTRAL_COLOR, 85)
+        canvas.drawLine(px, 0f, px, h, crossPaint)
+
+        val values = ArrayList<Pair<Int, Float>>() // цвет, значение
+        series.forEach { s ->
+            val v = interpolateAt(s.points, t) ?: return@forEach
+            val color = valueColorizer?.invoke(v) ?: s.color
+            values += color to v
+            val py = y(v)
+            markerPaint.color = 0xFF000000.toInt()
+            canvas.drawCircle(px, py, 5.2f * density, markerPaint)
+            markerPaint.color = color
+            canvas.drawCircle(px, py, 4f * density, markerPaint)
+            markerPaint.color = Color.WHITE
+            canvas.drawCircle(px, py, 1.6f * density, markerPaint)
+        }
+        if (values.isEmpty()) return
+
+        // подпись: время + значения (у мультиграфика — по строке на серию)
+        val timeText = ChartTimeFormat.tooltipLabel(t)
+        val lines = ArrayList<String>()
+        lines += timeText
+        values.forEachIndexed { i, (_, v) ->
+            val prefix = if (values.size > 1) "${i + 1}. " else ""
+            lines += prefix + formatTooltip(v)
+        }
+        val padH = 5f * density
+        val padV = 4f * density
+        val lineH = bubbleTextPaint.textSize + 2f * density
+        val boxW = lines.maxOf { bubbleTextPaint.measureText(it) } + padH * 2
+        val boxH = lineH * lines.size + padV * 2
+        // пузырь уезжает от края: слева от пальца, если справа места нет
+        var bx = px + 8f * density
+        if (bx + boxW > gutter + w) bx = px - 8f * density - boxW
+        bx = bx.coerceIn(gutter, max(gutter, gutter + w - boxW))
+        val by = 2f * density
+        val r = 4f * density
+        canvas.drawRoundRect(bx, by, bx + boxW, by + boxH, r, r, bubblePaint)
+        bubbleTextPaint.textAlign = Paint.Align.LEFT
+        lines.forEachIndexed { i, text ->
+            canvas.drawText(text, bx + padH, by + padV + lineH * (i + 1) - 3f * density, bubbleTextPaint)
+        }
+    }
+
+    /** Значение серии в момент t: линейная интерполяция между соседними точками */
+    private fun interpolateAt(points: ArrayDeque<TimePoint>, t: Long): Float? {
+        if (points.isEmpty()) return null
+        var prev: TimePoint? = null
+        for (p in points) {
+            if (p.t == t) return p.v
+            if (p.t > t) {
+                val a = prev ?: return p.v
+                val dt = (p.t - a.t).toFloat()
+                if (dt <= 0f) return p.v
+                val k = (t - a.t) / dt
+                return a.v + (p.v - a.v) * k
+            }
+            prev = p
+        }
+        return prev?.v
+    }
+
+    private fun formatTooltip(v: Float): String = when {
+        abs(v) >= 1000f -> String.format(java.util.Locale.getDefault(), "%.1f", v)
+        abs(v) >= 100f -> String.format(java.util.Locale.getDefault(), "%.1f", v)
+        abs(v) >= 1f -> String.format(java.util.Locale.getDefault(), "%.2f", v)
+        else -> String.format(java.util.Locale.getDefault(), "%.3f", v)
     }
 
     /** Компактная подпись оси: целые без дробной части, крупные — через k */

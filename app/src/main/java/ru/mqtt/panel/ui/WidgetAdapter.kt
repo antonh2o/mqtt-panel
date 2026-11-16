@@ -626,6 +626,22 @@ class WidgetAdapter(
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
             bindPeriodChips(panel)
+            bindChartSwipe(panel)
+        }
+
+        /**
+         * Свайп по графику на карточке = следующий/предыдущий период, как тап
+         * по чипу. Живёт внутри ChartView (onPeriodSwipe): там же обрабатывается
+         * удержание пальца с показом значения, и один обработчик не мешает
+         * другому. Панель в замыкании — актуальная: ViewHolder рециклится.
+         */
+        private fun bindChartSwipe(panel: Panel) {
+            val cv = chart ?: return
+            cv.onPeriodSwipe = { step ->
+                val periods = listOf("hour", "day", "week", "month", "year")
+                val idx = periods.indexOf(panel.historyPeriod ?: "day")
+                periods.getOrNull(idx + step)?.let { onChartPeriodSelected?.invoke(panel, it) }
+            }
         }
 
         /** Чипы периода «1d 1w 1m 1y» — narodmon-графики и MQTT-графики с историей из Grafana */
@@ -637,25 +653,57 @@ class WidgetAdapter(
                 return
             }
             row.visibility = View.VISIBLE
-            val periods = listOf("day", "week", "month", "year")
+            val periods = listOf("hour", "day", "week", "month", "year")
+            val labels = listOf(
+                R.string.chip_hour, R.string.chip_day, R.string.chip_week,
+                R.string.chip_month, R.string.chip_year
+            )
+            // короткие подписи на случай тесной карточки: 1ч 1с 1н 1м 1г
+            val labelsShort = listOf(
+                R.string.chip_hour_short, R.string.chip_day_short, R.string.chip_week_short,
+                R.string.chip_month_short, R.string.chip_year_short
+            )
+            val d = row.context.resources.displayMetrics.density
             if (row.childCount == 0) {
-                val d = row.context.resources.displayMetrics.density
-                listOf("1d", "1w", "1m", "1y").forEach { label ->
+                labels.forEach { labelRes ->
                     val chip = android.widget.TextView(row.context).apply {
-                        text = label
-                        textSize = 13f
-                        setPadding((12 * d).toInt(), (4 * d).toInt(), (12 * d).toInt(), (4 * d).toInt())
+                        text = row.context.getString(labelRes)
+                        textSize = 10f
+                        maxLines = 1
+                        gravity = android.view.Gravity.CENTER
+                        setPadding(0, (3 * d).toInt(), 0, (3 * d).toInt())
                         background = android.graphics.drawable.GradientDrawable().apply {
-                            cornerRadius = 14 * d
+                            cornerRadius = 11 * d
                             setColor(0x22888888)
                         }
+                        // равные доли: пять подписей в карточке 1/3 экрана
+                        // помещаются только так (wrap_content обрезался)
                         layoutParams = android.widget.LinearLayout.LayoutParams(
+                            0,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply { marginEnd = (4 * d).toInt() }
+                            1f
+                        ).apply { marginEnd = (2 * d).toInt() }
                     }
                     row.addView(chip)
                 }
+            }
+            // Полные трёхбуквенные подписи (час/ден/нед/мес/год), а если карточка
+            // слишком узкая — короткие (1ч/1с/1н/1м/1г). Ширину чипов узнаём
+            // только после layout, поэтому решение принимаем в post{}.
+            fun setChipLabels(short: Boolean) {
+                val res = if (short) labelsShort else labels
+                for (i in 0 until row.childCount) {
+                    val chip = row.getChildAt(i) as? android.widget.TextView ?: continue
+                    chip.text = row.context.getString(res[i])
+                }
+            }
+            setChipLabels(false)
+            row.post {
+                if (row.width <= 0) return@post
+                val chipW = (row.width - (2 * d).toInt() * row.childCount) / row.childCount
+                val first = row.getChildAt(0) as? android.widget.TextView ?: return@post
+                val needW = labels.maxOf { first.paint.measureText(row.context.getString(it)) }
+                if (needW > chipW) setChipLabels(true)
             }
             // Слушатель — на КАЖДОМ бинде: ViewHolder рециклится, и чип,
             // созданный один раз, навсегда запомнил бы ПЕРВУЮ панель — тапы
@@ -710,6 +758,7 @@ class WidgetAdapter(
             tvTopic?.visibility = View.GONE
             buildLegend(panel)
             bindPeriodChips(panel)
+            bindChartSwipe(panel)
         }
 
         /** Значение для легенды: float-хвосты (242.89999…) округляются до 2 знаков */

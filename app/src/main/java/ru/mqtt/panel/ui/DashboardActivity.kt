@@ -391,8 +391,8 @@ class DashboardActivity : AppCompatActivity() {
         } else {
             // порядок мог меняться — сохраняем и обновляем статус связи
             lifecycleScope.launch { repository.savePanelOrder(widgetAdapter.snapshotOrder()) }
-            renderStatus(connected = MqttService.connectionState == ConnectionState.CONNECTED,
-                connecting = MqttService.connectionState == ConnectionState.CONNECTING)
+            renderStatus(connected = svcState() == ConnectionState.CONNECTED,
+                connecting = svcState() == ConnectionState.CONNECTING)
         }
         invalidateOptionsMenu()
         widgetAdapter.notifyDataSetChanged()
@@ -1326,15 +1326,16 @@ class DashboardActivity : AppCompatActivity() {
 
     /** Выбор периода истории Народмона: Сутки / Неделя / Месяц */
     private fun setupHistoryPeriod(root: View, panel: Panel) {
-        val periods = listOf("day", "week", "month", "year")
+        val periods = listOf("hour", "day", "week", "month", "year")
         val labels = listOf(
+            getString(R.string.period_hour),
             getString(R.string.period_day),
             getString(R.string.period_week),
             getString(R.string.period_month),
             getString(R.string.period_year)
         )
         val et = root.findViewById<EditText>(R.id.et_history_period)
-        val current = periods.indexOf(panel.historyPeriod).takeIf { it >= 0 } ?: 0
+        val current = periods.indexOf(panel.historyPeriod).takeIf { it >= 0 } ?: 1
         et.setText(labels[current])
         // tag хранит ЗНАЧЕНИЕ периода: без него сохранение редактора записало бы
         // в панель текст-метку («Сутки»), и чипы 1d/1w/1m/1y все становились

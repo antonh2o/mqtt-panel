@@ -96,6 +96,19 @@
     <string name="panel_list_empty">No panels. Tap + to add one.</string>
     <string name="no_topic">No topic</string>
     <string name="panels_count">Panels: %1$d</string>
+    <string name="widgets_count">Widgets: %1$d</string>
+    <string name="connection_enabled">Connection enabled</string>
+    <string name="connection_disabled_toast">Connection is disabled — turn the switch on the card back on</string>
+    <string name="state_disabled">disabled</string>
+    <string name="led_status">%1$s: %2$s</string>
+    <string name="state_connected">connected</string>
+    <string name="state_connecting">connecting…</string>
+    <string name="state_error">connection error</string>
+    <string name="state_inactive">not connected</string>
+    <string name="state_checking">checking…</string>
+    <string name="state_unreachable">no answer</string>
+    <string name="state_online">online</string>
+    <string name="state_not_started">not started</string>
     <string name="log_saved_to">Log: %1$s</string>
     <string name="share_log">Send log</string>
     <string name="demo_loaded_toast">Demo dashboard loaded: public broker broker.emqx.io, values update every few seconds</string>
@@ -122,9 +135,6 @@
     <string name="grafana_ok">Connected: Grafana %1$s</string>
     <string name="grafana_fail">Failed: %1$s</string>
     <string name="grafana_need_url">Enable Grafana in connection settings</string>
-    <string name="grafana_status_connected_plain">Grafana: connected</string>
-    <string name="grafana_status_connected">Grafana: connected (%1$s)</string>
-    <string name="grafana_status_error">Grafana: %1$s</string>
     <string name="gh_hint_conn">Live points still come from MQTT; tag value = subscribe topic (multichart series use their own topics). Applies to all charts of this connection.</string>
     <string name="grafana_history">History from Grafana (InfluxDB)</string>
     <string name="gh_measurement">Measurement</string>
@@ -176,15 +186,27 @@
     <!-- Narodmon -->
     <string name="narodmon_account">Narodmon (account)</string>
     <string name="narodmon_polling">Polling sensors every minute</string>
+    
     <string name="field_pick_sensor">Pick sensor</string>
     <string name="add_all_sensors">Add all sensors at once</string>
     <string name="sensors_already_added">All sensors are already added</string>
     <string name="sensors_added_count">Panels added: %1$d</string>
     <string name="field_history_period">History period</string>
+    <string name="period_hour">Hour</string>
     <string name="period_day">Day</string>
     <string name="period_week">Week</string>
     <string name="period_month">Month</string>
     <string name="period_year">Year</string>
+    <string name="chip_hour">hr</string>
+    <string name="chip_day">day</string>
+    <string name="chip_week">wk</string>
+    <string name="chip_month">mo</string>
+    <string name="chip_year">yr</string>
+    <string name="chip_hour_short">1h</string>
+    <string name="chip_day_short">1d</string>
+    <string name="chip_week_short">1w</string>
+    <string name="chip_month_short">1m</string>
+    <string name="chip_year_short">1y</string>
     <string name="check_updates">Check for updates</string>
     <string name="update_latest">You are on the latest version</string>
     <string name="update_available">Version %1$s is available — download?</string>

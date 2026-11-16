@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.widget.LinearLayout
 import android.widget.TextView
+import ru.mqtt.panel.R
 import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.WidgetType
@@ -41,8 +42,11 @@ class FullscreenChartDialog(
     /** Карточка, для которой открыт диалог — по ней фильтруются live-обновления */
     val panelId: Long get() = panel.id
 
-    private val periods = listOf("day", "week", "month", "year")
-    private val labels = listOf("1d", "1w", "1m", "1y")
+    private val periods = listOf("hour", "day", "week", "month", "year")
+    private val labels = listOf(
+        R.string.chip_hour, R.string.chip_day, R.string.chip_week,
+        R.string.chip_month, R.string.chip_year
+    )
     private val isMulti = panel.type == WidgetType.MULTI_CHART
 
     private val density = context.resources.displayMetrics.density
@@ -56,7 +60,22 @@ class FullscreenChartDialog(
         )
         window?.setBackgroundDrawable(ColorDrawable(0xFF101216.toInt()))
         buildChips()
+        setupSwipe()
         applyData(single, multi)
+    }
+
+    /**
+     * Свайп по графику влево/вправо = следующий/предыдущий период — то же,
+     * что тап по чипу. Обрабатывается внутри ChartView, где одновременно
+     * работает показ значения под пальцем.
+     */
+    private fun setupSwipe() {
+        chart.onPeriodSwipe = { step ->
+            if (hasHistory) {
+                val idx = periods.indexOf(currentPeriod)
+                periods.getOrNull(idx + step)?.let { onPeriodSelected(it) }
+            }
+        }
     }
 
     private fun buildView(): View {
@@ -233,7 +252,7 @@ class FullscreenChartDialog(
         chipsRow.visibility = if (hasHistory) View.VISIBLE else View.GONE
         labels.forEachIndexed { i, label ->
             val chip = TextView(context).apply {
-                text = label
+                text = context.getString(label)
                 textSize = 14f
                 setPadding(dp(14), dp(5), dp(14), dp(5))
                 background = android.graphics.drawable.GradientDrawable().apply {
