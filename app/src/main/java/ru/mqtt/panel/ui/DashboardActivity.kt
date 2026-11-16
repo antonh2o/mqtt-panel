@@ -490,6 +490,33 @@ class DashboardActivity : AppCompatActivity() {
                 .create()
             dialog.show()
 
+            // «Все (N)» — выбрать все найденные / снять всё (toggle).
+            // Ключ строки храним в tag чекбокса — иначе не отличить,
+            // какой именно чекбокс соответствует какой строке.
+            val selectAllButton = android.widget.Button(this@DashboardActivity).apply {
+                textSize = 13f
+                setTextColor(0xFF43A047.toInt())
+                background = null
+                setOnClickListener {
+                    if (selected.size < rows.size) {
+                        selected.clear()
+                        selected.addAll(rows.map { it.key })
+                    } else {
+                        selected.clear()
+                    }
+                    boxes.values.forEach { cb ->
+                        cb.isChecked = selected.contains(cb.tag as String)
+                    }
+                    updateScanTitle(dialog, rows.size, selected.size)
+                }
+            }
+            val selectAllParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            selectAllParams.gravity = android.view.Gravity.END
+            container.addView(selectAllButton, selectAllParams)
+
             val header = android.widget.TextView(this@DashboardActivity).apply {
                 textSize = 13f
                 setPadding(0, 12, 0, 8)
@@ -513,6 +540,7 @@ class DashboardActivity : AppCompatActivity() {
                             updateScanTitle(dialog, rows.size, selected.size)
                         }
                     }
+                    cb.tag = row.key
                     boxes[row.key] = cb
                     container.addView(cb)
                 }
@@ -522,6 +550,7 @@ class DashboardActivity : AppCompatActivity() {
                 }
                 header.text = if (rows.isEmpty()) getString(R.string.scan_empty)
                 else getString(R.string.scan_found, rows.size)
+                selectAllButton.text = getString(R.string.scan_all, rows.size)
                 updateScanTitle(dialog, rows.size, selected.size)
             }
             rebuild()
