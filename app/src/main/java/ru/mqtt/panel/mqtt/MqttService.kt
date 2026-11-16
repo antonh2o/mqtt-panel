@@ -21,7 +21,6 @@ import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.ImportLog
 import ru.mqtt.panel.data.MqttConnection
-import ru.mqtt.panel.data.MqttTopicFilter
 import ru.mqtt.panel.data.Panel
 import ru.mqtt.panel.data.TopicRegistry
 import ru.mqtt.panel.data.WidgetType
@@ -33,11 +32,15 @@ import java.util.concurrent.CopyOnWriteArrayList
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
 
 /**
- * Фоновый сервис с активным MQTT-подключением.
- * Аналог WatchService из narmon-client: удерживает соединение,
- * автоматически переподключается, рассылает сообщения на UI.
+ * Фоновый сервис MQTT-подключений.
+ *
+ * Все ВКЛЮЧЁННЫЕ MQTT-подключения живут ПАРАЛЛЕЛЬНО — по собственному
+ * MqttClient на каждое (раньше сервис держал одно соединение и переподключался
+ * при смене дашборда). Выключатель на карточке главного экрана включает и
+ * выключает именно «своего» клиента, дашборды открываются поверх уже живого
+ * соединения. Народмон живёт в собственном NarodmonService и здесь не участвует.
  */
-class MqttService : Service(), MqttCallbackExtended {
+class MqttService : Service() {
 
     companion object {
         private const val TAG = "MqttService"
@@ -46,9 +49,12 @@ class MqttService : Service(), MqttCallbackExtended {
 
         const val ACTION_CONNECT = "ru.mqtt.panel.CONNECT"
         const val ACTION_DISCONNECT = "ru.mqtt.panel.DISCONNECT"
+        /** Закрыть ОДНО подключение (выключатель на карточке / выход из дашборда выключенного) */
+        const val ACTION_DISCONNECT_CONN = "ru.mqtt.panel.DISCONNECT_CONN"
         const val ACTION_SYNC_PANELS = "ru.mqtt.panel.SYNC_PANELS"
         const val ACTION_PUBLISH = "ru.mqtt.panel.PUBLISH"
         const val EXTRA_CONNECTION = "connection"
+        const val EXTRA_CONNECTION_ID = "connection_id"
         const val EXTRA_PANELS = "panels"
         const val EXTRA_TOPIC = "topic"
         const val EXTRA_PAYLOAD = "payload"
@@ -75,52 +81,93 @@ class MqttService : Service(), MqttCallbackExtended {
         /** Реестр observed-топиков живёт в процессе: сканер читает его напрямую */
         val topics = TopicRegistry()
 
+        /** Состояние каждого подключения (connId -> state) — снапшот для UI */
         @Volatile
-        var connectionState: ConnectionState = ConnectionState.DISCONNECTED
+        var states: Map<Long, ConnectionState> = emptyMap()
             private set
 
-        /** id подключения, к которому сейчас висит сокет — один сервис держит
-         *  только одно соединение, поэтому при смене дашборда нужно переподключиться */
+        /** id подключения чей дашборд/сканер сейчас на экране (для совместимости
+         *  статусов тулбара; клиенты при этом живут все) */
         @Volatile
         var activeConnectionId: Long = -1L
             private set
 
-        /** Момент установки соединения — по нему считаем «время в сети» на статус-баре */
+        /** Момент соединения по каждому подключению — «время в сети» тулбара */
         @Volatile
-        var connectedAt: Long = 0L
-            private set
+        private var connectedAtMap: Map<Long, Long> = emptyMap()
 
-        /** Секунды с момента подключения; -1 если соединения нет */
-        fun uptimeSeconds(): Long =
-            if (connectedAt == 0L) -1L else (System.currentTimeMillis() - connectedAt) / 1000L
+        fun stateOf(connectionId: Long): ConnectionState? = states[connectionId]
+
+        fun uptimeSecondsOf(connectionId: Long): Long {
+            val at = connectedAtMap[connectionId] ?: return -1L
+            return (System.currentTimeMillis() - at) / 1000L
+        }
+
+        /** Совместимость со старым UI: состояние активного подключения */
+        val connectionState: ConnectionState
+            get() = states[activeConnectionId] ?: ConnectionState.DISCONNECTED
+
+        fun uptimeSeconds(): Long = uptimeSecondsOf(activeConnectionId)
     }
 
-    private var client: MqttClient? = null
-    private var connection: MqttConnection? = null
-    private val panels = CopyOnWriteArrayList<Panel>()
-    /** topic -> список панелей, подписанных на эту тему */
-    private val topicMap = ConcurrentHashMap<String, MutableList<Panel>>()
+    /** Один параллельный клиент: подключение + его панели и подписки */
+    private class Entry(
+        val conn: MqttConnection,
+        val panels: CopyOnWriteArrayList<Panel> = CopyOnWriteArrayList(),
+        /** topic -> панели, подписанные на тему */
+        val topicMap: ConcurrentHashMap<String, MutableList<Panel>> = ConcurrentHashMap(),
+        @Volatile var client: MqttClient? = null,
+        @Volatile var state: ConnectionState = ConnectionState.CONNECTING,
+        @Volatile var connectedAtMs: Long = 0L,
+        @Volatile var demoFuture: java.util.concurrent.ScheduledFuture<*>? = null
+    ) {
+        fun buildTopicMap() {
+            topicMap.clear()
+            for (panel in panels) {
+                // Народмон-панели опрашивает NarodmonService — MQTT их не подписывает
+                if (panel.source == "narodmon") continue
+                // Мультиграфик подписан на темы своих серий, а не на topicSubscribe
+                if (panel.type == WidgetType.MULTI_CHART) {
+                    panel.series.forEach { s ->
+                        if (s.topic.isNotBlank()) topicMap.getOrPut(s.topic) { mutableListOf() }.add(panel)
+                    }
+                    continue
+                }
+                val topic = panel.topicSubscribe
+                if (topic.isBlank()) continue
+                topicMap.getOrPut(topic) { mutableListOf() }.add(panel)
+            }
+        }
+    }
+
+    /** Колбэк конкретного клиента: Paho не сообщает, какой клиент вызвал */
+    private inner class ClientCallback(val entry: Entry) : MqttCallbackExtended {
+        override fun connectComplete(reconnect: Boolean, serverURI: String?) =
+            this@MqttService.connectComplete(entry, reconnect, serverURI)
+        override fun connectionLost(cause: Throwable?) =
+            this@MqttService.connectionLost(entry, cause)
+        override fun messageArrived(topic: String?, message: MqttMessage?) =
+            this@MqttService.messageArrived(entry, topic, message)
+        override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
+    }
+
+    private val entries = ConcurrentHashMap<Long, Entry>()
 
     /**
-     * Подписка/отписка выполняется вне callback-потока Paho: блокирующий
+     * Подписка/отписка выполняется вне callback-потоков Paho: блокирующий
      * subscribe() ждёт SUBACK, а SUBACK обрабатывает тот же поток — отсюда
-     * «Timed out waiting for a response» и разорванное соединение.
+     * «Timed out waiting for a response». Один воркер сериализует connects/
+     * subscribes всех клиентов — параллельность даёт не поток, а отдельный
+     * MqttClient на каждое подключение.
      */
     private val mqttWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    /**
-     * Демо-режим (первый запуск): приложение само публикует показания
-     * «датчиков» на свои топики брокера broker.emqx.io и показывает их.
-     * Отдельный пул — периодические публикации не должны занимать mqttWorker.
-     */
+    /** Демо-режим (первый запуск): показания публикует само приложение */
     private val demoExecutor = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "demo-publisher")
     }
 
-    @Volatile
-    private var demoFuture: java.util.concurrent.ScheduledFuture<*>? = null
-
-    /** Сканер топиков: пока включён, держим подписку на `#` */
+    /** Сканер топиков: пока включён, держим подписку на `#` у сканируемого клиента */
     @Volatile
     private var scanning = false
 
@@ -138,21 +185,20 @@ class MqttService : Service(), MqttCallbackExtended {
                 @Suppress("UNCHECKED_CAST")
                 val panelList = intent.getSerializableExtra(EXTRA_PANELS) as? ArrayList<Panel> ?: ArrayList()
                 startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.connecting)))
-                // connect() блокирующий (TCP + CONNACK, таймаут 30 с), а
-                // onStartCommand крутится на main-потоке сервиса — при смене
-                // дашборда это вешало UI до полного переподключения.
-                // Очередь single-thread сериализует переключения.
-                mqttWorker.submit { connect(conn, panelList) }
+                mqttWorker.submit { ensureConnected(conn, panelList) }
             }
             ACTION_SYNC_PANELS -> {
                 @Suppress("UNCHECKED_CAST")
                 val panelList = intent.getSerializableExtra(EXTRA_PANELS) as? ArrayList<Panel> ?: ArrayList()
-                syncPanels(panelList)
+                val connId = intent.getLongExtra(EXTRA_CONNECTION_ID, -1L)
+                mqttWorker.submit { syncPanels(connId, panelList) }
             }
             ACTION_PUBLISH -> {
                 val topic = intent.getStringExtra(EXTRA_TOPIC)
                 val payload = intent.getStringExtra(EXTRA_PAYLOAD) ?: ""
-                if (topic != null) publish(topic, payload, intent.getIntExtra(EXTRA_QOS, 0), intent.getBooleanExtra(EXTRA_RETAINED, false))
+                val connId = intent.getLongExtra(EXTRA_CONNECTION_ID, -1L)
+                if (topic != null) publish(connId, topic, payload,
+                    intent.getIntExtra(EXTRA_QOS, 0), intent.getBooleanExtra(EXTRA_RETAINED, false))
             }
             ACTION_SCAN_START -> {
                 val conn = intent.getSerializableExtra(EXTRA_CONNECTION) as? MqttConnection
@@ -160,9 +206,13 @@ class MqttService : Service(), MqttCallbackExtended {
                 startScan(conn)
             }
             ACTION_SCAN_STOP -> stopScan()
+            ACTION_DISCONNECT_CONN -> {
+                val connId = intent.getLongExtra(EXTRA_CONNECTION_ID, -1L)
+                mqttWorker.submit { disconnectConn(connId) }
+                maybeStop()
+            }
             ACTION_DISCONNECT -> {
-                // disconnect(1000) блокирует до секунды — тот же main-поток, что и UI
-                mqttWorker.submit { disconnect() }
+                mqttWorker.submit { disconnectAll() }
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -170,92 +220,72 @@ class MqttService : Service(), MqttCallbackExtended {
         return START_NOT_STICKY
     }
 
-    /**
-     * Сканер топиков: подписка на `#` раскрывает всё дерево брокера.
-     * Если соединение этого подключения уже есть — просто добавляем подписку,
-     * не переподключаясь; иначе поднимаем соединение с пустым списком панелей
-     * (экран вернётся к панелям сам, когда скан закроют).
-     */
-    private fun startScan(conn: MqttConnection?) {
-        if (scanning) return
-        scanning = true
-        // Чистим темы именно этого подключения: иначе в список попадали бы
-        // топики с другого брокера, собранные во время предыдущего скана
-        if (conn != null) topics.clear(conn.id)
-        ImportLog.write(this, "SCAN START conn=${conn?.id}")
-        val live = client
-        if (live != null && live.isConnected && conn != null && activeConnectionId == conn.id) {
-            mqttWorker.submit { subscribeScanFilter() }
-        } else if (conn != null) {
-            mqttWorker.submit { connect(conn, emptyList()) }
+    /** Нет клиентов и сканера — сервису нечего держать */
+    private fun maybeStop() {
+        if (entries.isEmpty() && !scanning) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
         } else {
-            ImportLog.write(this, "SCAN: нет подключения")
+            updateNotification()
         }
     }
 
-    private fun stopScan() {
-        if (!scanning) return
-        scanning = false
-        ImportLog.write(this, "SCAN STOP: найдено ${topics.size} топиков")
-        mqttWorker.submit {
-            try {
-                client?.unsubscribe(SCAN_FILTER)
-            } catch (e: Exception) {
-                Log.w(TAG, "Unsubscribe scan failed", e)
-            }
-        }
-    }
-
-    private fun subscribeScanFilter() {
-        val mqttClient = client ?: return
-        try {
-            mqttClient.subscribe(SCAN_FILTER, 0)
-            ImportLog.write(this, "SUBSCRIBED '$SCAN_FILTER' — сканер запущен")
-        } catch (e: Exception) {
-            ImportLog.write(this, "SCAN SUBSCRIBE FAILED: ${e.javaClass.simpleName}: ${e.message}")
-        }
-    }
-
-    private fun connect(conn: MqttConnection?, panelList: List<Panel>) {
+    /**
+     * Подключить (или переиспользовать) клиента подключения. Уже живое
+     * соединение НЕ рвётся — только дообновляются панели и подписки
+     * (раньше смена дашборда переподключалась с нуля).
+     */
+    private fun ensureConnected(conn: MqttConnection?, panelList: List<Panel>) {
         if (conn == null) return
-        disconnectClient()
-        connection = conn
         activeConnectionId = conn.id
-        panels.clear()
-        panels.addAll(panelList)
-        buildTopicMap()
-
-        connectionState = ConnectionState.CONNECTING
-        broadcastStatus(ConnectionState.CONNECTING)
+        val existing = entries[conn.id]
+        if (existing != null && existing.client?.isConnected == true) {
+            existing.panels.clear()
+            existing.panels.addAll(panelList)
+            val old = existing.topicMap.keys.toSet()
+            existing.buildTopicMap()
+            val delta = existing.topicMap.keys - old
+            if (delta.isNotEmpty()) subscribeTopics(existing, delta.toList())
+            setState(existing, ConnectionState.CONNECTED)
+            ImportLog.write(this, "REUSE ${conn.name}: соединение уже живо, панелей=${panelList.size}, +тем=${delta.size}")
+            return
+        }
+        if (existing == null) {
+            val e = Entry(conn)
+            e.panels.addAll(panelList)
+            e.buildTopicMap()
+            entries[conn.id] = e
+        } else {
+            existing.panels.clear()
+            existing.panels.addAll(panelList)
+            existing.buildTopicMap()
+        }
+        val entry = entries[conn.id] ?: return
+        disconnectClientOf(entry) // недоживший прошлый клиент — закрыть перед новым
+        setState(entry, ConnectionState.CONNECTING)
 
         try {
             val uri = "${conn.getScheme()}://${conn.host}:${conn.port}"
-            // BROKER рвёт старое соединение при дубле ClientID — два устройства
-            // с импортированным конфигом выбивали бы друг друга по кругу (flap).
-            // Поэтому при импорте генерируется новый ClientID (AppRepository),
-            // а здесь — запасной вариант для пустого поля.
             var clientId = conn.clientId
             if (clientId.isBlank()) clientId = "mqttpanel-" + UUID.randomUUID().toString().take(8)
 
-            ImportLog.write(this, "CONNECT ${conn.name} → $uri clientId=$clientId user=${conn.username.ifBlank { "—" }} keepAlive=${conn.keepAlive} clean=${conn.cleanSession} панелей=${panelList.size} тем=${topicMap.size}")
+            ImportLog.write(this, "CONNECT ${conn.name} → $uri clientId=$clientId user=${conn.username.ifBlank { "—" }} keepAlive=${conn.keepAlive} clean=${conn.cleanSession} панелей=${entry.panels.size} тем=${entry.topicMap.size} (параллельно клиентов=${entries.size})")
 
             val mqttClient = MqttClient(uri, clientId, MemoryPersistence())
-            mqttClient.setCallback(this)
-            // ВАЖНО: назначаем поле client ДО connect() — Paho вызывает
-            // connectComplete() синхронно внутри connect(), а там subscribeAll()
-            // подписывается через this.client
-            client = mqttClient
+            // колбэк привязан к записи: сообщение知道自己 откуда пришло
+            mqttClient.setCallback(ClientCallback(entry))
+            entry.client = mqttClient
             mqttClient.connect(buildOptions(conn))
         } catch (e: Exception) {
             Log.e(TAG, "Connect error", e)
             ImportLog.write(this, "CONNECT FAILED ${conn.name}: ${e.javaClass.simpleName}: ${e.message}")
-            connectionState = ConnectionState.DISCONNECTED
-            broadcastStatus(ConnectionState.DISCONNECTED)
-            broadcastStatusText("${getString(R.string.mqtt_connect_fail)}: ${e.message}")
+            setState(entry, ConnectionState.DISCONNECTED)
+            broadcastStatusText(entry, "${getString(R.string.mqtt_connect_fail)}: ${e.message}")
         }
     }
 
-    private fun buildOptions(conn: MqttConnection): MqttConnectOptions {        val options = MqttConnectOptions()
+    private fun buildOptions(conn: MqttConnection): MqttConnectOptions {
+        val options = MqttConnectOptions()
         options.isCleanSession = conn.cleanSession
         options.keepAliveInterval = conn.keepAlive.coerceIn(5, 3600)
         options.isAutomaticReconnect = true
@@ -267,73 +297,53 @@ class MqttService : Service(), MqttCallbackExtended {
         return options
     }
 
-    private fun buildTopicMap() {
-        topicMap.clear()
-        for (panel in panels) {
-            // Народмон-панели опрашивает NarodmonService — MQTT их не подписывает
-            if (panel.source == "narodmon") continue
-            // Мультиграфик подписан на темы своих серий, а не на topicSubscribe
-            if (panel.type == WidgetType.MULTI_CHART) {
-                panel.series.forEach { s ->
-                    if (s.topic.isNotBlank()) topicMap.getOrPut(s.topic) { mutableListOf() }.add(panel)
-                }
-                continue
-            }
-            val topic = panel.topicSubscribe
-            if (topic.isBlank()) continue
-            topicMap.getOrPut(topic) { mutableListOf() }.add(panel)
-        }
-    }
-
     /** Обновление состава панелей без переподключения */
-    private fun syncPanels(panelList: List<Panel>) {
-        val oldTopics = topicMap.keys.toSet()
-        panels.clear()
-        panels.addAll(panelList)
-        buildTopicMap()
-        val newTopics = topicMap.keys.toSet()
-        val topicsToSubscribe = (newTopics - oldTopics).toList()
+    private fun syncPanels(connectionId: Long, panelList: List<Panel>) {
+        val entry = entries[connectionId] ?: return
+        val oldTopics = entry.topicMap.keys.toSet()
+        entry.panels.clear()
+        entry.panels.addAll(panelList)
+        entry.buildTopicMap()
+        val topicsToSubscribe = (entry.topicMap.keys - oldTopics).toList()
         if (topicsToSubscribe.isNotEmpty()) {
-            mqttWorker.submit {
-                subscribeTopics(topicsToSubscribe)
-            }
+            mqttWorker.submit { subscribeTopics(entry, topicsToSubscribe) }
         }
     }
 
-    override fun connectComplete(reconnect: Boolean, serverURI: String?) {
-        Log.i(TAG, "connectComplete reconnect=$reconnect")
-        ImportLog.write(this, "CONNECTED $serverURI (reconnect=$reconnect), подписок=${topicMap.size}")
-        connectedAt = System.currentTimeMillis()
-        connectionState = ConnectionState.CONNECTED
-        broadcastStatus(ConnectionState.CONNECTED)
+    private fun connectComplete(entry: Entry, reconnect: Boolean, serverURI: String?) {
+        Log.i(TAG, "connectComplete ${entry.conn.name} reconnect=$reconnect")
+        ImportLog.write(this, "CONNECTED ${entry.conn.name} $serverURI (reconnect=$reconnect), подписок=${entry.topicMap.size}")
+        entry.connectedAtMs = System.currentTimeMillis()
+        publishStates()
+        setState(entry, ConnectionState.CONNECTED)
         // Подписку выносим в отдельный поток, чтобы не вызывать блокирующий
         // subscribe() из callback-потока Paho — это вызывает таймауты.
-        mqttWorker.submit { subscribeAll() }
+        mqttWorker.submit { subscribeAll(entry) }
         // Демо-подключение само генерирует показания — иначе пустому публичному
         // брокеру показывать нечего ($SYS и # анонимам закрыты)
-        if (connection?.demo == true && connection?.host == ru.mqtt.panel.data.DemoConfig.DEMO_HOST) {
-            startDemoPublisher()
+        if (entry.conn.demo && entry.conn.host == ru.mqtt.panel.data.DemoConfig.DEMO_HOST) {
+            startDemoPublisher(entry)
         }
     }
 
     /** Публикация демо-показаний каждые 4 с на топики с префиксом демо-конфига */
-    private fun startDemoPublisher() {
-        val prefix = panels.firstNotNullOfOrNull {
+    private fun startDemoPublisher(entry: Entry) {
+        val prefix = entry.panels.firstNotNullOfOrNull {
             ru.mqtt.panel.data.DemoConfig.prefixOfTopic(it.topicSubscribe)
-        } ?: panels.firstNotNullOfOrNull { p ->
+        } ?: entry.panels.firstNotNullOfOrNull { p ->
             p.series.firstNotNullOfOrNull { ru.mqtt.panel.data.DemoConfig.prefixOfTopic(it.topic) }
         } ?: run {
             ImportLog.write(this, "DEMO PUBLISHER: демо-топики не найдены")
             return
         }
-        stopDemoPublisher()
+        stopDemoPublisher(entry)
         val sensors = ru.mqtt.panel.data.DemoConfig.DemoSensors()
-        demoFuture = demoExecutor.scheduleWithFixedDelay({
-            val mqttClient = client ?: return@scheduleWithFixedDelay
+        entry.demoFuture = demoExecutor.scheduleWithFixedDelay({
+            val mqttClient = entry.client ?: return@scheduleWithFixedDelay
             if (!mqttClient.isConnected) return@scheduleWithFixedDelay
             try {
                 sensors.tick().forEach { (suffix, payload) ->
-                    publish("$prefix/$suffix", payload, 0, false)
+                    publish(entry.conn.id, "$prefix/$suffix", payload, 0, false)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Demo publish error", e)
@@ -342,16 +352,61 @@ class MqttService : Service(), MqttCallbackExtended {
         ImportLog.write(this, "DEMO PUBLISHER: запущен, $prefix каждые 4 с")
     }
 
-    private fun stopDemoPublisher() {
-        demoFuture?.cancel(false)
-        demoFuture = null
+    private fun stopDemoPublisher(entry: Entry) {
+        entry.demoFuture?.cancel(false)
+        entry.demoFuture = null
     }
 
-    private fun subscribeAll() {
-        ImportLog.write(this, "SUBSCRIBE REQUEST: ${topicMap.size} тем")
-        subscribeTopics(topicMap.keys.toList())
+    private fun subscribeAll(entry: Entry) {
+        ImportLog.write(this, "SUBSCRIBE REQUEST ${entry.conn.name}: ${entry.topicMap.size} тем")
+        subscribeTopics(entry, entry.topicMap.keys.toList())
         // После (пере)подключения возвращаем сканирующую подписку, если скан активен
-        if (scanning) subscribeScanFilter()
+        if (scanning && entry.conn.id == activeConnectionId) subscribeScanFilter(entry)
+    }
+
+    /**
+     * Сканер топиков: подписка на `#` у сканируемого подключения. Живое
+     * соединение переиспользуется, отсутствующее — поднимается с пустым
+     * списком панелей (экран вернётся к панелям сам, когда скан закроют).
+     */
+    private fun startScan(conn: MqttConnection?) {
+        if (scanning) return
+        scanning = true
+        if (conn != null) topics.clear(conn.id)
+        ImportLog.write(this, "SCAN START conn=${conn?.id}")
+        if (conn == null) {
+            ImportLog.write(this, "SCAN: нет подключения")
+            return
+        }
+        mqttWorker.submit {
+            ensureConnected(conn, emptyList())
+            entries[conn.id]?.let { subscribeScanFilter(it) }
+        }
+    }
+
+    private fun stopScan() {
+        if (!scanning) return
+        scanning = false
+        ImportLog.write(this, "SCAN STOP: найдено ${topics.size} топиков")
+        mqttWorker.submit {
+            entries[activeConnectionId]?.let { entry ->
+                try {
+                    entry.client?.unsubscribe(SCAN_FILTER)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Unsubscribe scan failed", e)
+                }
+            }
+        }
+    }
+
+    private fun subscribeScanFilter(entry: Entry) {
+        val mqttClient = entry.client ?: return
+        try {
+            mqttClient.subscribe(SCAN_FILTER, 0)
+            ImportLog.write(this, "SUBSCRIBED '$SCAN_FILTER' — сканер запущен (${entry.conn.name})")
+        } catch (e: Exception) {
+            ImportLog.write(this, "SCAN SUBSCRIBE FAILED: ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     /**
@@ -359,17 +414,16 @@ class MqttService : Service(), MqttCallbackExtended {
      * mqttWorker — из callback-потока Paho блокирующий subscribe привёл бы
      * к «Timed out waiting for a response from the server».
      */
-    private fun subscribeTopics(topics: List<String>) {
+    private fun subscribeTopics(entry: Entry, topics: List<String>) {
         if (topics.isEmpty()) return
-        val mqttClient = client ?: return
+        val mqttClient = entry.client ?: return
         val arr = topics.toTypedArray()
-        val qos = IntArray(arr.size) { topicMap[topics[it]]?.firstOrNull()?.qos ?: 0 }
+        val qos = IntArray(arr.size) { entry.topicMap[topics[it]]?.firstOrNull()?.qos ?: 0 }
         try {
             mqttClient.subscribe(arr, qos)
-            ImportLog.write(this, "SUBSCRIBED ${arr.size}: ${arr.joinToString(", ")}")
+            ImportLog.write(this, "SUBSCRIBED ${entry.conn.name} ${arr.size}: ${arr.joinToString(", ")}")
         } catch (e: Exception) {
-            // Массивом не вышло — по одной, чтобы не потерять остальные
-            Log.w(TAG, "Batch subscribe failed, retrying one by one", e)
+            Log.w(TAG, "Batch subscribe failed, retry one by one", e)
             var ok = 0
             arr.forEachIndexed { i, topic ->
                 try {
@@ -383,31 +437,33 @@ class MqttService : Service(), MqttCallbackExtended {
         }
     }
 
-    override fun connectionLost(cause: Throwable?) {
-        Log.w(TAG, "connectionLost", cause)
-        ImportLog.write(this, "CONNECTION LOST: ${cause?.javaClass?.simpleName}: ${cause?.message}")
+    private fun connectionLost(entry: Entry, cause: Throwable?) {
+        Log.w(TAG, "connectionLost ${entry.conn.name}", cause)
+        ImportLog.write(this, "CONNECTION LOST ${entry.conn.name}: ${cause?.javaClass?.simpleName}: ${cause?.message}")
         // Paho с automaticReconnect сам восстановит соединение
-        connectionState = ConnectionState.CONNECTING
-        broadcastStatus(ConnectionState.CONNECTING)
+        setState(entry, ConnectionState.CONNECTING)
     }
 
-    override fun messageArrived(topic: String?, message: MqttMessage?) {
+    private fun messageArrived(entry: Entry, topic: String?, message: MqttMessage?) {
         val payloadBytes = message?.payload ?: ByteArray(0)
-        // Реестр для сканера топиков пишется всегда: когда пользователь открывает
-        // сканер, уже подписанные темы у него на виду, а не пустой экран
-        topics.record(topic ?: "", payloadBytes, connectionId = activeConnectionId)
+        // Реестр для сканера топиков пишется всегда
+        topics.record(topic ?: "", payloadBytes, connectionId = entry.conn.id)
         val intent = Intent(BROADCAST_MESSAGE).apply {
             putExtra(EXTRA_MESSAGE_TOPIC, topic ?: "")
             putExtra(EXTRA_MESSAGE_PAYLOAD, String(payloadBytes))
             putExtra(EXTRA_MESSAGE_TIME, System.currentTimeMillis())
+            putExtra(EXTRA_CONNECTION_ID, entry.conn.id)
         }
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
 
-    override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
-
-    fun publish(topic: String, payload: String, qos: Int, retained: Boolean) {
-        val mqttClient = client ?: return
+    fun publish(connectionId: Long, topic: String, payload: String, qos: Int, retained: Boolean) {
+        // приоритет: указанное подключение → активное → любой живой клиент
+        val entry = entries[connectionId]
+            ?: entries[activeConnectionId]
+            ?: entries.values.firstOrNull { it.client?.isConnected == true }
+            ?: return
+        val mqttClient = entry.client ?: return
         if (!mqttClient.isConnected) return
         try {
             val msg = MqttMessage(payload.toByteArray()).apply {
@@ -420,20 +476,25 @@ class MqttService : Service(), MqttCallbackExtended {
         }
     }
 
-    private fun disconnect() {
-        disconnectClient()
-        connection = null
-        activeConnectionId = -1L
-        panels.clear()
-        topicMap.clear()
-        connectionState = ConnectionState.DISCONNECTED
-        broadcastStatus(ConnectionState.DISCONNECTED)
+    /** Закрыть одного клиента (выключатель, выход из дашборда выключенного) */
+    private fun disconnectConn(connectionId: Long) {
+        val entry = entries.remove(connectionId) ?: return
+        stopDemoPublisher(entry)
+        disconnectClientOf(entry)
+        ImportLog.write(this, "DISCONNECT ${entry.conn.name}")
+        publishStates()
+        broadcastStatus(entry.conn.id, ConnectionState.DISCONNECTED)
     }
 
-    private fun disconnectClient() {
-        stopDemoPublisher()
+    private fun disconnectAll() {
+        entries.keys.toList().forEach { disconnectConn(it) }
+        activeConnectionId = -1L
+    }
+
+    private fun disconnectClientOf(entry: Entry) {
+        stopDemoPublisher(entry)
         try {
-            client?.let {
+            entry.client?.let {
                 it.setCallback(null)
                 if (it.isConnected) it.disconnect(1000)
                 it.close(true)
@@ -441,7 +502,7 @@ class MqttService : Service(), MqttCallbackExtended {
         } catch (e: Exception) {
             Log.w(TAG, "Disconnect error", e)
         }
-        client = null
+        entry.client = null
     }
 
     override fun onDestroy() {
@@ -449,14 +510,39 @@ class MqttService : Service(), MqttCallbackExtended {
         super.onDestroy()
     }
 
-    private fun broadcastStatus(state: ConnectionState) {
-        val intent = Intent(BROADCAST_STATUS).apply { putExtra(EXTRA_STATUS, state.name) }
+    // --- статусы: карта состояний + локальная рассылка ---
+
+    private fun setState(entry: Entry, state: ConnectionState) {
+        entry.state = state
+        publishStates()
+        broadcastStatus(entry.conn.id, state)
+    }
+
+    private fun publishStates() {
+        states = entries.entries.associate { it.key to it.value.state }
+        connectedAtMap = entries.entries.associate { it.key to it.value.connectedAtMs }
+    }
+
+    private fun broadcastStatus(connectionId: Long, state: ConnectionState) {
+        val intent = Intent(BROADCAST_STATUS).apply {
+            putExtra(EXTRA_STATUS, state.name)
+            putExtra(EXTRA_CONNECTION_ID, connectionId)
+        }
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
 
-    private fun broadcastStatusText(text: String) {
-        val intent = Intent(BROADCAST_STATUS).apply { putExtra(EXTRA_STATUS, "error:$text") }
+    private fun broadcastStatusText(entry: Entry, text: String) {
+        val intent = Intent(BROADCAST_STATUS).apply {
+            putExtra(EXTRA_STATUS, "error:$text")
+            putExtra(EXTRA_CONNECTION_ID, entry.conn.id)
+        }
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    }
+
+    private fun updateNotification() {
+        val connected = states.count { it.value == ConnectionState.CONNECTED }
+        val text = getString(R.string.mqtt_parallel_status, connected, states.size)
+        startForeground(NOTIFICATION_ID, buildNotification(text))
     }
 
     private fun createNotificationChannel() {
@@ -486,7 +572,7 @@ class MqttService : Service(), MqttCallbackExtended {
     }
 }
 
-/** Запуск сервиса подключения */
+/** Запуск/переиспользование подключения (не рвёт остальные) */
 fun Context.startMqttConnect(connection: MqttConnection, panels: List<Panel>) {
     val intent = Intent(this, MqttService::class.java).apply {
         action = MqttService.ACTION_CONNECT
@@ -496,6 +582,16 @@ fun Context.startMqttConnect(connection: MqttConnection, panels: List<Panel>) {
     startForegroundService(intent)
 }
 
+/** Закрыть одно подключение (выключатель на карточке) */
+fun Context.stopMqttConnection(connectionId: Long) {
+    val intent = Intent(this, MqttService::class.java).apply {
+        action = MqttService.ACTION_DISCONNECT_CONN
+        putExtra(MqttService.EXTRA_CONNECTION_ID, connectionId)
+    }
+    startService(intent)
+}
+
+/** Полный останов сервиса (все подключения) */
 fun Context.stopMqtt() {
     val intent = Intent(this, MqttService::class.java).apply {
         action = MqttService.ACTION_DISCONNECT
@@ -503,17 +599,21 @@ fun Context.stopMqtt() {
     startService(intent)
 }
 
-fun Context.syncMqttPanels(panels: List<Panel>) {
+fun Context.syncMqttPanels(connectionId: Long, panels: List<Panel>) {
     val intent = Intent(this, MqttService::class.java).apply {
         action = MqttService.ACTION_SYNC_PANELS
+        putExtra(MqttService.EXTRA_CONNECTION_ID, connectionId)
         putExtra(MqttService.EXTRA_PANELS, ArrayList(panels))
     }
     startService(intent)
 }
 
-fun Context.publishMqtt(topic: String, payload: String, qos: Int, retained: Boolean) {
+fun Context.publishMqtt(
+    connectionId: Long, topic: String, payload: String, qos: Int, retained: Boolean
+) {
     val intent = Intent(this, MqttService::class.java).apply {
         action = MqttService.ACTION_PUBLISH
+        putExtra(MqttService.EXTRA_CONNECTION_ID, connectionId)
         putExtra(MqttService.EXTRA_TOPIC, topic)
         putExtra(MqttService.EXTRA_PAYLOAD, payload)
         putExtra(MqttService.EXTRA_QOS, qos)

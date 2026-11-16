@@ -22,6 +22,7 @@ import ru.mqtt.panel.data.MqttConnection
 import ru.mqtt.panel.databinding.FragmentConnectionListBinding
 import ru.mqtt.panel.mqtt.startMqttConnect
 import ru.mqtt.panel.mqtt.startNarodmon
+import ru.mqtt.panel.mqtt.stopMqttConnection
 import ru.mqtt.panel.mqtt.stopMqtt
 import ru.mqtt.panel.mqtt.stopNarodmon
 
@@ -49,9 +50,8 @@ class ConnectionListFragment : Fragment() {
 
     private fun updateRuntimeStates() {
         if (_binding == null) return
-        adapter.setRuntimeStates(
-            ru.mqtt.panel.mqtt.MqttService.activeConnectionId,
-            ru.mqtt.panel.mqtt.MqttService.connectionState,
+        adapter.setMqttStates(
+            ru.mqtt.panel.mqtt.MqttService.states,
             ru.mqtt.panel.mqtt.NarodmonService.connectionState,
             ru.mqtt.panel.mqtt.NarodmonService.serviceAlive
         )
@@ -208,20 +208,26 @@ class ConnectionListFragment : Fragment() {
     }
 
     /**
-     * Главный экран — хаб подключений: если ни одно не поднято (после запуска
-     * приложения, после выключения активного), поднимаем первое включённое.
-     * Иначе карточка со включённым свитчем показывала бы «не подключено».
-     * Работает только когда оба сервиса свободны — иначе вытеснили бы
-     * соединение, открытое в дашборде.
+     * Главный экран — хаб подключений: все ВКЛЮЧЁННЫЕ MQTT-подключения
+     * поднимаются ПАРАЛЛЕЛЬНО (у сервиса по клиенту на каждое); Народмон —
+     * один аккаунт, сервис сам разруливает. ensureConnected переиспользует
+     * уже живые соединения и не рвёт чужие.
      */
     private fun autoConnectFirstEnabled(connections: List<MqttConnection>) {
-        if (ru.mqtt.panel.mqtt.MqttService.activeConnectionId != -1L) return
-        if (ru.mqtt.panel.mqtt.NarodmonService.activeConnectionId != -1L) return
-        val conn = connections.firstOrNull { it.enabled != false } ?: return
+        val enabledMqtt = connections.filter { it.enabled != false && !it.narodmon }
+        val enabledNm = connections.firstOrNull { it.enabled != false && it.narodmon }
         viewLifecycleOwner.lifecycleScope.launch {
-            val panels = repository.getPanels(conn.id)
             val ctx = requireContext().applicationContext
-            if (conn.narodmon) ctx.startNarodmon(conn, panels) else ctx.startMqttConnect(conn, panels)
+            enabledMqtt.forEach { conn ->
+                val panels = repository.getPanels(conn.id)
+                ctx.startMqttConnect(conn, panels)
+            }
+            enabledNm?.let { conn ->
+                if (ru.mqtt.panel.mqtt.NarodmonService.activeConnectionId == -1L) {
+                    val panels = repository.getPanels(conn.id)
+                    ctx.startNarodmon(conn, panels)
+                }
+            }
         }
     }
 
@@ -371,7 +377,7 @@ class ConnectionListFragment : Fragment() {
                 val panels = repository.getPanels(conn.id)
                 if (conn.narodmon) ctx.startNarodmon(conn, panels) else ctx.startMqttConnect(conn, panels)
             } else {
-                if (ru.mqtt.panel.mqtt.MqttService.activeConnectionId == conn.id) ctx.stopMqtt()
+                ctx.stopMqttConnection(conn.id)
                 if (ru.mqtt.panel.mqtt.NarodmonService.activeConnectionId == conn.id) ctx.stopNarodmon()
             }
             loadConnections()

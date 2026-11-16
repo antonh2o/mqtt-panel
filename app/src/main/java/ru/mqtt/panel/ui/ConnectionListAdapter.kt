@@ -27,9 +27,9 @@ class ConnectionListAdapter(
     /** connectionId -> графана жива (по probe); null — ещё проверяется */
     private var grafanaOk: Map<Long, Boolean> = emptyMap()
 
-    /** Живое состояние сервисов — для светодиодов (обновляется broadcast'ом) */
-    private var mqttActiveId: Long = -1L
-    private var mqttState: ConnectionState? = null
+    /** Живое состояние сервисов — для светодиодов (обновляется broadcast'ом).
+     *  MQTT параллельный: connId -> состояние */
+    private var mqttStates: Map<Long, ConnectionState> = emptyMap()
     private var nmState: ConnectionState? = null
     private var nmAlive: Boolean = false
 
@@ -50,14 +50,12 @@ class ConnectionListAdapter(
     }
 
     /** Обновить светодиоды MQTT/Narodmon из состояния сервисов */
-    fun setRuntimeStates(
-        activeMqttId: Long,
-        mqtt: ConnectionState?,
+    fun setMqttStates(
+        mqtt: Map<Long, ConnectionState>,
         narodmon: ConnectionState?,
         narodmonAlive: Boolean
     ) {
-        mqttActiveId = activeMqttId
-        mqttState = mqtt
+        mqttStates = mqtt
         nmState = narodmon
         nmAlive = narodmonAlive
         notifyItemRangeChanged(0, itemCount)
@@ -168,8 +166,9 @@ class ConnectionListAdapter(
             } else {
                 ledBoxNarodmon.visibility = View.GONE
                 ledBoxMqtt.visibility = View.VISIBLE
-                // сервис держит одно соединение: карточка не активна — серая
-                if (conn.id == mqttActiveId && mqttState != null) {
+                // подключения живут параллельно: нет в сервисе — выключено/не подключалось
+                val mqttState = mqttStates[conn.id]
+                if (mqttState != null) {
                     val (color, text) = when (mqttState) {
                         ConnectionState.CONNECTED -> cGreen to ctx.getString(R.string.state_connected)
                         ConnectionState.CONNECTING -> cYellow to ctx.getString(R.string.state_connecting)

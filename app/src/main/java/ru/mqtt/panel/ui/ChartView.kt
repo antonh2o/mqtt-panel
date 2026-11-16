@@ -167,6 +167,10 @@ class ChartView @JvmOverloads constructor(
     private var downX = 0f
     private var downY = 0f
 
+    /** Протяжка пошла (палец уведён по горизонтали заметно дальше порога
+     *  касания) — это свайп периода: крестовину гасим, чтобы не мигала */
+    private var swipeArmed = false
+
     override fun onTouchEvent(event: android.view.MotionEvent): Boolean {
         if (series.none { it.points.size >= 2 } || layoutSpan <= 0L || layoutW <= 0f) {
             return super.onTouchEvent(event)
@@ -175,13 +179,16 @@ class ChartView @JvmOverloads constructor(
             android.view.MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downY = event.y
-                showAt(event.x)
+                swipeArmed = false
+                // крестовину НЕ показываем сразу: короткое касание-«протяжка»
+                // не должно мелькать значением — разделение жестов честное:
+                // удержание/ведение = крестовина, резкий широкий жест = свайп
                 return true
             }
             android.view.MotionEvent.ACTION_MOVE -> {
                 // Вертикальное движение — это прокрутка списка: отдаём жест
                 // родителю (он пришлёт CANCEL, крестовина уберётся). Иначе
-                // держим жест сами, чтобы крестовина не мигала.
+                // держим жест ourselves, чтобы крестовина не мигала.
                 val dx = abs(event.x - downX)
                 val dy = abs(event.y - downY)
                 if (dy > 12f * density && dy > dx * 1.5f) {
@@ -190,20 +197,39 @@ class ChartView @JvmOverloads constructor(
                     parent?.requestDisallowInterceptTouchEvent(false)
                     return false
                 }
+                // медленное ведение пальцем (до порога свайпа) — это выбор точки:
+                // крестовина следует за пальцем; отпущено — останется на месте.
+                // Гасим крестовину только когда протяжка явно превысила порог
+                // свайпа (60dp) — тогда UP переключит период
+                if (dx > 60f * density) {
+                    swipeArmed = true
+                    if (touchT != null) {
+                        touchT = null
+                        invalidate()
+                    }
+                    return true
+                }
                 parent?.requestDisallowInterceptTouchEvent(true)
-                showAt(event.x)
+                if (!swipeArmed) showAt(event.x)
                 return true
             }
             android.view.MotionEvent.ACTION_UP -> {
                 val dx = event.x - downX
                 val dy = event.y - downY
-                touchT = null
-                invalidate()
                 parent?.requestDisallowInterceptTouchEvent(false)
                 val minDx = 60f * density
-                if (onPeriodSwipe != null && abs(dx) > minDx && abs(dx) > abs(dy) * 1.5f) {
+                if (swipeArmed && onPeriodSwipe != null &&
+                    abs(dx) > minDx && abs(dx) > abs(dy) * 1.5f
+                ) {
+                    touchT = null
+                    invalidate()
                     onPeriodSwipe?.invoke(if (dx < 0) 1 else -1)
+                    return true
                 }
+                // тап или отпускание после лёгкого ведения — показать и ОСТАВИТЬ
+                // крестовину в точке отпускания (значения видны и после ухода
+                // пальца; уберётся сменой периода или новым свайпом)
+                if (!swipeArmed) showAt(event.x)
                 return true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
@@ -306,22 +332,20 @@ class ChartView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val gutter = if (showScale) scalePaint.measureText("-0000.00") + 4f * density else 0f
         val timeLabelsH = 17f * density
-        val w = width - gutter
         val h = height - timeLabelsH
-        if (w <= 0f) return
 
         val drawable = series.filter { it.points.size >= 2 }
         if (drawable.isEmpty()) {
-            // без данных — каркас из пунктирных линий: карточка не «пустеет»
+            // без данных — каркас из пунктирных линий во всю ширину: подписей
+            // оси ещё нет, левое поле не нужно (карточка не «пустеет»)
             gridPaint.pathEffect = dash
             for (i in 1..3) {
                 val gy = h * i / 4f
-                canvas.drawLine(gutter, gy, gutter + w, gy, gridPaint)
+                canvas.drawLine(0f, gy, width.toFloat(), gy, gridPaint)
             }
             for (i in 1..3) {
-                val gx = gutter + w * i / 4f
+                val gx = width * i / 4f
                 canvas.drawLine(gx, 0f, gx, h, gridPaint)
             }
             gridPaint.pathEffect = null
@@ -360,6 +384,19 @@ class ChartView @JvmOverloads constructor(
         val niceMin = floor(minV / step) * step
         val niceMax = ceil(maxV / step) * step
         val range = niceMax - niceMin
+
+        // Левое поле — по ФАКТИЧЕСКИМ подписям уровней оси (самая широкая
+        // метка + запас): раньше резервировали ширину «-0000.02» всегда —
+        // на температурах оставался большой пустой отступ слева
+        var labelMaxW = 0f
+        var lv = niceMin
+        while (lv <= niceMax + step / 2) {
+            labelMaxW = maxOf(labelMaxW, scalePaint.measureText(format(lv)))
+            lv += step
+        }
+        val gutter = if (showScale) labelMaxW + 4f * density else 0f
+        val w = width - gutter
+        if (w <= 0f) return
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
 

@@ -106,6 +106,7 @@
     <string name="state_connected">подключено</string>
     <string name="state_connecting">подключение…</string>
     <string name="state_error">ошибка связи</string>
+    <string name="mqtt_parallel_status">Подключено клиентов: %1$d из %2$d</string>
     <string name="state_inactive">не подключено</string>
     <string name="state_checking">проверка…</string>
     <string name="state_unreachable">не отвечает</string>

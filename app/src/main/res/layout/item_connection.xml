@@ -36,26 +36,26 @@
                 android:id="@+id/sw_enabled"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="10dp"
                 android:contentDescription="@string/connection_enabled"
-                android:scaleX="0.8"
-                android:scaleY="0.8"
-                app:switchMinWidth="32dp" />
+                app:switchMinWidth="40dp" />
 
             <ImageButton
                 android:id="@+id/btn_edit"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:padding="4dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:padding="8dp"
                 android:src="@drawable/ic_edit"
                 android:contentDescription="@string/edit_connection"
                 android:background="?attr/selectableItemBackgroundBorderless" />
 
             <ImageButton
                 android:id="@+id/btn_delete"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:padding="4dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:padding="8dp"
                 android:src="@drawable/ic_delete"
                 android:contentDescription="@string/delete_connection"
                 android:background="?attr/selectableItemBackgroundBorderless" />

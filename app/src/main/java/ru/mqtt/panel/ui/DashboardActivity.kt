@@ -43,6 +43,7 @@ import ru.mqtt.panel.mqtt.publishMqtt
 import ru.mqtt.panel.mqtt.startMqttConnect
 import ru.mqtt.panel.mqtt.startMqttScan
 import ru.mqtt.panel.mqtt.startNarodmon
+import ru.mqtt.panel.mqtt.stopMqttConnection
 import ru.mqtt.panel.mqtt.stopMqtt
 import ru.mqtt.panel.mqtt.stopMqttScan
 import ru.mqtt.panel.mqtt.stopNarodmon
@@ -96,18 +97,26 @@ class DashboardActivity : AppCompatActivity() {
         if (useNarodmon()) NarodmonService.activeConnectionId else MqttService.activeConnectionId
 
     private fun svcUptime(): Long =
-        if (useNarodmon()) NarodmonService.uptimeSeconds() else MqttService.uptimeSeconds()
+        if (useNarodmon()) NarodmonService.uptimeSeconds()
+        else MqttService.uptimeSecondsOf(connectionId)
 
     private fun connectService(conn: MqttConnection, panels: List<Panel>) {
         if (conn.narodmon) startNarodmon(conn, panels) else startMqttConnect(conn, panels)
     }
 
     private fun disconnectService() {
-        if (useNarodmon()) stopNarodmon() else stopMqtt()
+        if (useNarodmon()) {
+            stopNarodmon()
+        } else if (loadedConnection?.enabled == false) {
+            // выключенное подключение дашборд больше не держит; включённые
+            // живут в сервисе параллельно до выключателя на главном экране
+            stopMqttConnection(connectionId)
+        }
     }
 
     private fun syncServicePanels(panels: List<Panel>) {
-        if (useNarodmon()) syncNarodmonPanels(panels) else syncMqttPanels(panels)
+        if (useNarodmon()) syncNarodmonPanels(panels)
+        else syncMqttPanels(connectionId, panels)
     }
 
     private fun renderStatus(
@@ -182,6 +191,11 @@ class DashboardActivity : AppCompatActivity() {
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
             val status = intent?.getStringExtra(MqttService.EXTRA_STATUS) ?: return
+            // статусы приходят от каждого параллельного клиента: чужие мимо
+            if (!status.startsWith("error:")) {
+                val stConnId = intent.getLongExtra(MqttService.EXTRA_CONNECTION_ID, -1L)
+                if (stConnId != -1L && stConnId != connectionId && !useNarodmon()) return
+            }
             when {
                 status == ConnectionState.CONNECTED.name -> renderStatus(connected = true)
                 status == ConnectionState.CONNECTING.name -> renderStatus(connecting = true)
@@ -194,11 +208,11 @@ class DashboardActivity : AppCompatActivity() {
 
     private val messageReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
-            // Сервис держит одно соединение: сообщения от другого подключения
-            // сюда приходить не должны, иначе значения «перетекают» между приборами.
-            // narodmon-сервис рассылает значения в тот же broadcast (topic = sensorId)
-            if (MqttService.activeConnectionId != connectionId &&
-                NarodmonService.activeConnectionId != connectionId) return
+            // MQTT-подключения живут параллельно: сервис помечает каждое
+            // сообщение своим connectionId — чужие сюда не попадают. narodmon
+            // рассылает в тот же broadcast без пометки (topic = sensorId)
+            val msgConnId = intent?.getLongExtra(MqttService.EXTRA_CONNECTION_ID, -1L) ?: -1L
+            if (msgConnId != -1L && msgConnId != connectionId) return
             val topic = intent?.getStringExtra(MqttService.EXTRA_MESSAGE_TOPIC) ?: return
             val payload = intent.getStringExtra(MqttService.EXTRA_MESSAGE_PAYLOAD) ?: return
             // у Народмона — время платформы, у MQTT — момент приёма
@@ -243,7 +257,7 @@ class DashboardActivity : AppCompatActivity() {
             onDelete = { panel -> deletePanel(panel) },
             onDuplicate = { panel -> duplicatePanel(panel) },
             onPublish = { panel, payload ->
-                publishMqtt(panel.topicPublish, payload, panel.qos, panel.retained)
+                publishMqtt(panel.connectionId, panel.topicPublish, payload, panel.qos, panel.retained)
             },
             onDragStart = { holder -> dragHelper?.startDrag(holder) }
         )
