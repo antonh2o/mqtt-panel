@@ -6,12 +6,14 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.ColorRange
 import ru.mqtt.panel.data.Panel
@@ -24,20 +26,22 @@ import ru.mqtt.panel.data.WidgetType
  */
 class FullscreenChartDialog(
     context: Context,
-    private val panel: Panel,
+    initialPanel: Panel,
     private val hasHistory: Boolean,
     single: List<ChartView.TimePoint>,
     private val multi: Map<Int, List<ChartView.TimePoint>>,
     private val onPeriodSelected: (String) -> Unit
 ) : Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen) {
 
+    private var panel: Panel = initialPanel
     private val chart = ChartView(context)
     private val tvValue = TextView(context)
     private val tvTime = TextView(context)
     private val chipsRow = LinearLayout(context)
     private val legendRow = LinearLayout(context)
-    private var currentPeriod: String = panel.historyPeriod ?: "day"
+    private var currentPeriod: String = initialPanel.historyPeriod ?: "day"
     private var lastSeriesIdx: Int? = null
+    private var resetChip: TextView? = null
 
     /** Карточка, для которой открыт диалог — по ней фильтруются live-обновления */
     val panelId: Long get() = panel.id
@@ -59,6 +63,11 @@ class FullscreenChartDialog(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         )
         window?.setBackgroundDrawable(ColorDrawable(0xFF101216.toInt()))
+        chart.tooltipScale = 4f
+        chart.zoomEnabled = true
+        chart.onZoomChanged = { zoomed ->
+            resetChip?.visibility = if (zoomed) View.VISIBLE else View.GONE
+        }
         buildChips()
         setupSwipe()
         applyData(single, multi)
@@ -90,10 +99,17 @@ class FullscreenChartDialog(
             setTextColor(Color.WHITE)
         })
         tvValue.apply {
-            textSize = 36f
+            // В 4 раза крупнее прежних 36sp: на большом экране значение — главный
+            // элемент. Длинные значения («750.41») автоуменьшаются до 72sp,
+            // чтобы не обрезаться по ширине.
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 144f)
+            maxLines = 1
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(0, dp(10), 0, dp(4))
+            setPadding(0, dp(6), 0, dp(2))
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this, 72, 144, 4, TypedValue.COMPLEX_UNIT_SP
+            )
         }
         root.addView(tvValue)
         chart.layoutParams = LinearLayout.LayoutParams(
@@ -121,6 +137,7 @@ class FullscreenChartDialog(
         single: List<ChartView.TimePoint>,
         multi: Map<Int, List<ChartView.TimePoint>>
     ) {
+        this.panel = panel
         lastSeriesIdx?.let { this.lastSeriesIdx = it }
         applyData(single, multi)
     }
@@ -128,6 +145,10 @@ class FullscreenChartDialog(
     /** Подсветка активного периода после переключения */
     fun setPeriod(period: String) {
         currentPeriod = period
+        // новый период — новый диапазон: прежний пинч-масштаб не имеет смысла,
+        // а крестовина от старого диапазона показывала бы чужое время
+        chart.resetZoom()
+        chart.clearTouchHighlight()
         highlightChips()
     }
 
@@ -138,6 +159,7 @@ class FullscreenChartDialog(
             200
         )
         chart.showScale = panel.chartShowScale
+        chart.unitSuffix = panel.unitSuffix
         // Динамический цвет линии по значению (как на карточке):
         // если заданы colorMin/Mid/Max — линия красится по диапазону,
         // иначе — одним цветом серии/линии
@@ -253,16 +275,18 @@ class FullscreenChartDialog(
         labels.forEachIndexed { i, label ->
             val chip = TextView(context).apply {
                 text = context.getString(label)
-                textSize = 14f
-                setPadding(dp(14), dp(5), dp(14), dp(5))
+                textSize = 18f
+                gravity = Gravity.CENTER
+                maxLines = 1
+                minHeight = dp(48)
+                setPadding(dp(8), dp(10), dp(8), dp(10))
                 background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = dp(16).toFloat()
+                    cornerRadius = dp(24).toFloat()
                     setColor(0x339AA0A6)
                 }
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = dp(10) }
+                // равные доли ширины: крупные чипы удобно нажимать пальцем
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { marginEnd = dp(6) }
                 setOnClickListener {
                     periods.getOrNull(i)?.let { period ->
                         if (period != currentPeriod) onPeriodSelected(period)
@@ -271,11 +295,32 @@ class FullscreenChartDialog(
             }
             chipsRow.addView(chip)
         }
+        // Кнопка снятия пинч-масштаба: появляется только когда график приближен.
+        // Растянуть обратно можно и пальцами, но кнопка делает это очевидным.
+        resetChip = TextView(context).apply {
+            text = context.getString(R.string.fullscreen_zoom_reset)
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                setColor(0x44E0A030)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            visibility = View.GONE
+            setOnClickListener { chart.resetZoom() }
+        }
+        chipsRow.addView(resetChip)
         highlightChips()
     }
 
     private fun highlightChips() {
-        for (i in 0 until chipsRow.childCount) {
+        // последний ребёнок — кнопка сброса, у неё нет «активного» периода
+        val n = minOf(chipsRow.childCount, periods.size)
+        for (i in 0 until n) {
             val chip = chipsRow.getChildAt(i) as TextView
             val active = currentPeriod == periods[i]
             chip.alpha = if (active) 1f else 0.45f

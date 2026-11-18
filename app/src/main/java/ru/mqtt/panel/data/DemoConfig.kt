@@ -63,7 +63,7 @@ object DemoConfig {
         val panels = listOf(
             panel("🌡 Дома", WidgetType.VALUE, "$p/$S_HOME_T") {
                 unitSuffix = " °C"; span = 2
-                sliderMin = 19.0; sliderMax = 24.0
+                sliderMin = 20.0; sliderMax = 28.0
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
             },
             panel("🌡 Улица", WidgetType.VALUE, "$p/$S_STREET_T") {
@@ -72,11 +72,11 @@ object DemoConfig {
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
             },
             panel("💧 Влажность", WidgetType.PROGRESS_H, "$p/$S_HOME_H") {
-                unitSuffix = " %"; span = 3
+                unitSuffix = " %"; span = 2
                 sliderMin = 0.0; sliderMax = 100.0
             },
             panel("🌫 CO₂", WidgetType.VALUE, "$p/$S_CO2") {
-                unitSuffix = " ppm"; span = 3
+                unitSuffix = " ppm"; span = 2
                 sliderMin = 400.0; sliderMax = 1000.0
                 colorMin = "#66BB6A"; colorMid = "#FFA726"; colorMax = "#EF5350"
             },
@@ -88,7 +88,7 @@ object DemoConfig {
             },
             panel("🌡 Дома — график", WidgetType.CHART, "$p/$S_HOME_T") {
                 span = 6; chartPoints = 120
-                sliderMin = 19.0; sliderMax = 24.0
+                sliderMin = 20.0; sliderMax = 28.0
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
             },
             Panel(

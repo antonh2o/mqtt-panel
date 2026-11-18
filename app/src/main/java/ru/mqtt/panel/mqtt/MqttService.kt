@@ -320,8 +320,9 @@ class MqttService : Service() {
         // subscribe() из callback-потока Paho — это вызывает таймауты.
         mqttWorker.submit { subscribeAll(entry) }
         // Демо-подключение само генерирует показания — иначе пустому публичному
-        // брокеру показывать нечего ($SYS и # анонимам закрыты)
-        if (entry.conn.demo && entry.conn.host == ru.mqtt.panel.data.DemoConfig.DEMO_HOST) {
+        // брокеру показывать нечего ($SYS и # анонимам закрыты).
+        // Маркер — флаг demo: хост может быть любым публичным (emqx/hivemq)
+        if (entry.conn.demo) {
             startDemoPublisher(entry)
         }
     }

@@ -208,6 +208,7 @@
     <string name="chip_week_short">1w</string>
     <string name="chip_month_short">1m</string>
     <string name="chip_year_short">1y</string>
+    <string name="fullscreen_zoom_reset">reset zoom</string>
     <string name="check_updates">Check for updates</string>
     <string name="update_latest">You are on the latest version</string>
     <string name="update_available">Version %1$s is available — download?</string>

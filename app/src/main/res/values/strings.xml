@@ -208,6 +208,7 @@
     <string name="chip_week_short">1н</string>
     <string name="chip_month_short">1м</string>
     <string name="chip_year_short">1г</string>
+    <string name="fullscreen_zoom_reset">сброс масштаба</string>
     <string name="check_updates">Проверить обновления</string>
     <string name="update_latest">У вас последняя версия</string>
     <string name="update_available">Доступна версия %1$s — скачать?</string>

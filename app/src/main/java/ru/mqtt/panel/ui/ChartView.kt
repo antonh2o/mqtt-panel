@@ -7,6 +7,7 @@ import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
+import android.view.ScaleGestureDetector
 import android.view.View
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -14,6 +15,7 @@ import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.pow
+import kotlin.math.sqrt
 
 /**
  * Линейный график (замена AndroidPlot из narmon-client).
@@ -77,6 +79,35 @@ class ChartView @JvmOverloads constructor(
      */
     var valueColorizer: ((Float) -> Int)? = null
 
+    /**
+     * Масштаб подсказки под пальцем. На полноэкранном графике значения
+     * мелкие на большом экране — там подсказка увеличивается в 4 раза,
+     * на карточке остаётся компактной.
+     */
+    var tooltipScale: Float = 1f
+        set(value) {
+            field = value.coerceIn(1f, 6f)
+            bubbleTextPaint.textSize = 9.5f * density * field
+            invalidate()
+        }
+
+    /** Суффикс единиц измерения в подсказке («°C», «W»), как на карточке */
+    var unitSuffix: String = ""
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** Двухпальцевый пинч — масштаб по времени (включается на графиках) */
+    var zoomEnabled: Boolean = false
+
+    /** Признак активного масштаба (для кнопки «сброс» на полном экране) */
+    var isZoomed: Boolean = false
+        private set
+
+    /** Вызывается при изменении масштаба: true — приближено, false — весь период */
+    var onZoomChanged: ((Boolean) -> Unit)? = null
+
     private val density = resources.displayMetrics.density
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -127,6 +158,15 @@ class ChartView @JvmOverloads constructor(
     private var layoutTMin = 0L
     private var layoutSpan = 1L
 
+    // --- пинч-масштаб по времени ---
+    private var zoomMinT: Long? = null
+    private var zoomMaxT: Long? = null
+    private var scaleStartMin = 0L
+    private var scaleStartMax = 0L
+    private var scaleStartFocusX = 0f
+    /** Жест начался как двухпальцевый: не превращаем его в крестовину/свайп */
+    private var scaleWasActive = false
+
     private val crossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1f * density
@@ -146,6 +186,77 @@ class ChartView @JvmOverloads constructor(
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
+    }
+
+    private val scaleDetector = ScaleGestureDetector(context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                if (!zoomEnabled) return false
+                val full = fullTimeRange() ?: return false
+                val curMin = (zoomMinT ?: full.first).coerceIn(full.first, full.second)
+                val curMax = (zoomMaxT ?: full.second).coerceIn(full.first, full.second)
+                if (curMax - curMin < 1000L || layoutW <= 0f) return false
+                scaleStartMin = curMin
+                scaleStartMax = curMax
+                scaleStartFocusX = detector.focusX
+                scaleWasActive = true
+                touchT = null
+                invalidate()
+                return true
+            }
+
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val full = fullTimeRange() ?: return false
+                if (layoutW <= 0f) return false
+                val fullSpan = (full.second - full.first).toDouble()
+                if (fullSpan <= 0.0) return false
+                val startSpan = (scaleStartMax - scaleStartMin).toDouble()
+                val minSpan = maxOf(60_000.0, fullSpan / 1000.0)
+                var newSpan = (startSpan / detector.scaleFactor).coerceIn(minSpan, fullSpan)
+                val ratio = (((scaleStartFocusX - layoutGutter) / layoutW)
+                    .coerceIn(0f, 1f)).toDouble()
+                val anchorT = scaleStartMin + startSpan * ratio
+                var newMin = anchorT - newSpan * ratio
+                // панорама двумя пальцами: фокус сместился — сдвигаем окно
+                val panDelta = (detector.focusX - scaleStartFocusX) / layoutW * newSpan
+                newMin -= panDelta
+                // не выпускаем окно за пределы всего периода
+                newMin = newMin.coerceIn(full.first.toDouble(), full.second - newSpan)
+                if (newSpan >= fullSpan * 0.995) {
+                    // растянули обратно на весь период — масштаб снят
+                    zoomMinT = null
+                    zoomMaxT = null
+                } else {
+                    zoomMinT = newMin.toLong()
+                    zoomMaxT = (newMin + newSpan).toLong()
+                }
+                isZoomed = zoomMinT != null
+                onZoomChanged?.invoke(isZoomed)
+                invalidate()
+                return true
+            }
+        })
+
+    /** Полный диапазон времени по всем точкам (null — данных нет) */
+    private fun fullTimeRange(): Pair<Long, Long>? {
+        var minT = Long.MAX_VALUE
+        var maxT = Long.MIN_VALUE
+        series.forEach { s -> s.points.forEach { p ->
+            if (p.t < minT) minT = p.t
+            if (p.t > maxT) maxT = p.t
+        } }
+        if (maxT <= minT) return null
+        return minT to maxT
+    }
+
+    /** Снять пинч-масштаб (смена периода, кнопка «сброс») */
+    fun resetZoom() {
+        if (zoomMinT == null && zoomMaxT == null) return
+        zoomMinT = null
+        zoomMaxT = null
+        isZoomed = false
+        onZoomChanged?.invoke(false)
+        invalidate()
     }
 
     /** Сбросить крестовину (например, при смене периода или уходе с графика) */
@@ -175,11 +286,20 @@ class ChartView @JvmOverloads constructor(
         if (series.none { it.points.size >= 2 } || layoutSpan <= 0L || layoutW <= 0f) {
             return super.onTouchEvent(event)
         }
+        // Пинч живёт параллельно одиночным жестам: детектор видит все события,
+        // но перехватывает управление только когда реально начал масштабирование.
+        if (zoomEnabled) scaleDetector.onTouchEvent(event)
+        if (scaleDetector.isInProgress || (scaleWasActive && event.actionMasked ==
+                android.view.MotionEvent.ACTION_MOVE)) {
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
+        }
         when (event.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
                 downX = event.x
                 downY = event.y
                 swipeArmed = false
+                scaleWasActive = false
                 // крестовину НЕ показываем сразу: короткое касание-«протяжка»
                 // не должно мелькать значением — разделение жестов честное:
                 // удержание/ведение = крестовина, резкий широкий жест = свайп
@@ -214,6 +334,11 @@ class ChartView @JvmOverloads constructor(
                 return true
             }
             android.view.MotionEvent.ACTION_UP -> {
+                if (scaleWasActive) {
+                    scaleWasActive = false
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    return true
+                }
                 val dx = event.x - downX
                 val dy = event.y - downY
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -233,6 +358,7 @@ class ChartView @JvmOverloads constructor(
                 return true
             }
             android.view.MotionEvent.ACTION_CANCEL -> {
+                scaleWasActive = false
                 touchT = null
                 invalidate()
                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -363,11 +489,44 @@ class ChartView @JvmOverloads constructor(
             if (p.t < tMin) tMin = p.t
             if (p.t > tMax) tMax = p.t
         } }
+        if (tMax == tMin) tMax = tMin + 1
+
+        // Пинч-масштаб: рисуем только выбранное окно времени и подгоняем
+        // вертикальную шкалу под точки внутри него (иначе кривая прилипает
+        // к низу графика). Окно всегда зажато в полном диапазоне данных.
+        var viewTMin = tMin
+        var viewTMax = tMax
+        val zMin = zoomMinT
+        val zMax = zoomMaxT
+        if (zMin != null && zMax != null) {
+            if (zMax - zMin >= 1000L) {
+                viewTMin = zMin.coerceIn(tMin, tMax)
+                viewTMax = zMax.coerceIn(tMin, tMax)
+                if (viewTMax - viewTMin >= 1000L && viewTMax < tMax) {
+                    // и вертикальный масштаб — по видимым точкам
+                    var vMin = Float.MAX_VALUE
+                    var vMax = -Float.MAX_VALUE
+                    drawable.forEach { s -> s.points.forEach { p ->
+                        if (p.t in viewTMin..viewTMax) {
+                            if (p.v < vMin) vMin = p.v
+                            if (p.v > vMax) vMax = p.v
+                        }
+                    } }
+                    if (vMax > vMin) {
+                        minV = vMin
+                        maxV = vMax
+                    }
+                }
+            } else {
+                zoomMinT = null
+                zoomMaxT = null
+                isZoomed = false
+            }
+        }
         if (abs(maxV - minV) < 1e-6f) {
             minV -= 1f
             maxV += 1f
         }
-        if (tMax == tMin) tMax = tMin + 1
 
         // «Красивые» границы шкалы: шаг 1/2/5 × 10^n — сетка и подписи
         // попадают на ровные значения (как в референсе Народмон: 2/0/-2/-4)
@@ -400,7 +559,7 @@ class ChartView @JvmOverloads constructor(
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
 
-        fun x(t: Long) = gutter + (t - tMin).toFloat() / (tMax - tMin) * w
+        fun x(t: Long) = gutter + (t - viewTMin).toFloat() / (viewTMax - viewTMin) * w
         fun y(v: Float) = h - (v - niceMin) / range * usableH - 4f * density
 
         // Сетка: горизонтальные пунктирные линии по «красивым» уровням шкалы
@@ -420,8 +579,8 @@ class ChartView @JvmOverloads constructor(
         // вертикальные линии — в тех же позициях, что подписи времени снизу.
         // Число меток ограничено шириной подписи: «14:21:27» при шаге на глаз
         // наезжала на соседнюю, подписи шли внахлёст.
-        val span = tMax - tMin
-        val labelW = timePaint.measureText(ChartTimeFormat.label(span, tMax))
+        val span = viewTMax - viewTMin
+        val labelW = timePaint.measureText(ChartTimeFormat.label(span, viewTMax))
         val minStepPx = labelW + 8f * density
         val vSteps = if (span > 60_000L && minStepPx > 0f) {
             maxOf(0, (w / minStepPx).toInt() - 1).coerceAtMost(12)
@@ -429,11 +588,11 @@ class ChartView @JvmOverloads constructor(
         // Промежуточные метки: без повторов подписи (на неделе соседние метки
         // дают одно и то же «15.11») и без наезда на уже поставленную.
         val midTicks = ArrayList<Pair<Float, Long>>()
-        var lastText = ChartTimeFormat.label(span, tMin)
+        var lastText = ChartTimeFormat.label(span, viewTMin)
         var lastRight = gutter + labelW + 4f * density
         for (i in 1..vSteps) {
             val gx = gutter + i * w / (vSteps + 1)
-            val t = tMin + i * span / (vSteps + 1)
+            val t = viewTMin + i * span / (vSteps + 1)
             val text = ChartTimeFormat.label(span, t)
             if (text == lastText) continue
             if (gx - labelW / 2 < lastRight) continue
@@ -443,7 +602,7 @@ class ChartView @JvmOverloads constructor(
         }
         // правая крайняя подпись приоритетнее последней промежуточной:
         // снимаем её, если она повторяет текст правой или наезжает на неё
-        val rightText = ChartTimeFormat.label(span, tMax)
+        val rightText = ChartTimeFormat.label(span, viewTMax)
         while (midTicks.isNotEmpty()) {
             val (gx, t) = midTicks.last()
             val clash = gutter + w - labelW < gx + labelW / 2 + 4f * density ||
@@ -514,22 +673,22 @@ class ChartView @JvmOverloads constructor(
         // шкала времени: крайние метки + промежуточные с тем же шагом, что у сетки
         val labelY = h + timeLabelsH - 3f * density
         timePaint.textAlign = Paint.Align.LEFT
-        canvas.drawText(ChartTimeFormat.label(span, tMin), gutter, labelY, timePaint)
+        canvas.drawText(ChartTimeFormat.label(span, viewTMin), gutter, labelY, timePaint)
         timePaint.textAlign = Paint.Align.CENTER
         midTicks.forEach { (gx, t) ->
             canvas.drawText(ChartTimeFormat.label(span, t), gx, labelY, timePaint)
         }
         timePaint.textAlign = Paint.Align.RIGHT
-        canvas.drawText(ChartTimeFormat.label(span, tMax), gutter + w, labelY, timePaint)
+        canvas.drawText(ChartTimeFormat.label(span, viewTMax), gutter + w, labelY, timePaint)
 
         // запоминаем геометрию: по ней переводим касание в момент времени
         layoutGutter = gutter
         layoutW = w
         layoutH = h
-        layoutTMin = tMin
+        layoutTMin = viewTMin
         layoutSpan = span
 
-        drawTouchHighlight(canvas, gutter, w, h, tMin, span, ::x, ::y)
+        drawTouchHighlight(canvas, gutter, w, h, viewTMin, span, ::x, ::y)
     }
 
     /**
@@ -555,17 +714,18 @@ class ChartView @JvmOverloads constructor(
         canvas.drawLine(px, 0f, px, h, crossPaint)
 
         val values = ArrayList<Pair<Int, Float>>() // цвет, значение
+        val markerScale = sqrt(tooltipScale).coerceAtLeast(1f)
         series.forEach { s ->
             val v = interpolateAt(s.points, t) ?: return@forEach
             val color = valueColorizer?.invoke(v) ?: s.color
             values += color to v
             val py = y(v)
             markerPaint.color = 0xFF000000.toInt()
-            canvas.drawCircle(px, py, 5.2f * density, markerPaint)
+            canvas.drawCircle(px, py, 5.2f * density * markerScale, markerPaint)
             markerPaint.color = color
-            canvas.drawCircle(px, py, 4f * density, markerPaint)
+            canvas.drawCircle(px, py, 4f * density * markerScale, markerPaint)
             markerPaint.color = Color.WHITE
-            canvas.drawCircle(px, py, 1.6f * density, markerPaint)
+            canvas.drawCircle(px, py, 1.6f * density * markerScale, markerPaint)
         }
         if (values.isEmpty()) return
 
@@ -575,19 +735,21 @@ class ChartView @JvmOverloads constructor(
         lines += timeText
         values.forEachIndexed { i, (_, v) ->
             val prefix = if (values.size > 1) "${i + 1}. " else ""
-            lines += prefix + formatTooltip(v)
+            // единицы измерения — как у большого значения: «22.95 °C»
+            lines += prefix + withUnitSuffix(v)
         }
-        val padH = 5f * density
-        val padV = 4f * density
-        val lineH = bubbleTextPaint.textSize + 2f * density
+        val ts = tooltipScale
+        val padH = 5f * density * ts
+        val padV = 4f * density * ts
+        val lineH = bubbleTextPaint.textSize + 2f * density * ts
         val boxW = lines.maxOf { bubbleTextPaint.measureText(it) } + padH * 2
         val boxH = lineH * lines.size + padV * 2
         // пузырь уезжает от края: слева от пальца, если справа места нет
-        var bx = px + 8f * density
-        if (bx + boxW > gutter + w) bx = px - 8f * density - boxW
+        var bx = px + 8f * density * ts
+        if (bx + boxW > gutter + w) bx = px - 8f * density * ts - boxW
         bx = bx.coerceIn(gutter, max(gutter, gutter + w - boxW))
         val by = 2f * density
-        val r = 4f * density
+        val r = 4f * density * ts
         canvas.drawRoundRect(bx, by, bx + boxW, by + boxH, r, r, bubblePaint)
         bubbleTextPaint.textAlign = Paint.Align.LEFT
         lines.forEachIndexed { i, text ->
@@ -618,6 +780,14 @@ class ChartView @JvmOverloads constructor(
         abs(v) >= 100f -> String.format(java.util.Locale.getDefault(), "%.1f", v)
         abs(v) >= 1f -> String.format(java.util.Locale.getDefault(), "%.2f", v)
         else -> String.format(java.util.Locale.getDefault(), "%.3f", v)
+    }
+
+    /** Значение подсказки с единицами: «°C»/«%» впритык, остальное через пробел */
+    private fun withUnitSuffix(v: Float): String {
+        val s = formatTooltip(v)
+        if (unitSuffix.isBlank()) return s
+        val sep = if (unitSuffix.startsWith("°") || unitSuffix.startsWith("%")) "" else " "
+        return s + sep + unitSuffix
     }
 
     /** Компактная подпись оси: целые без дробной части, крупные — через k */

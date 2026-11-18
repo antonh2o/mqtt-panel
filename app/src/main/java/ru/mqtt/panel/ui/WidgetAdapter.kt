@@ -606,6 +606,8 @@ class WidgetAdapter(
             cv.maxPoints = max(panel.chartPoints, history?.size ?: 0)
             cv.lineColor = parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
             cv.showScale = panel.chartShowScale
+            cv.unitSuffix = panel.unitSuffix
+            cv.zoomEnabled = true
             // динамическая раскраска линии по значению (мин→середина→макс),
             // если у панели заданы все три цвета диапазона
             cv.valueColorizer =
@@ -640,7 +642,11 @@ class WidgetAdapter(
             cv.onPeriodSwipe = { step ->
                 val periods = listOf("hour", "day", "week", "month", "year")
                 val idx = periods.indexOf(panel.historyPeriod ?: "day")
-                periods.getOrNull(idx + step)?.let { onChartPeriodSelected?.invoke(panel, it) }
+                periods.getOrNull(idx + step)?.let { period ->
+                    cv.resetZoom()
+                    cv.clearTouchHighlight()
+                    onChartPeriodSelected?.invoke(panel, period)
+                }
             }
         }
 
@@ -668,12 +674,14 @@ class WidgetAdapter(
                 labels.forEach { labelRes ->
                     val chip = android.widget.TextView(row.context).apply {
                         text = row.context.getString(labelRes)
-                        textSize = 10f
+                        textSize = 11f
                         maxLines = 1
                         gravity = android.view.Gravity.CENTER
-                        setPadding(0, (3 * d).toInt(), 0, (3 * d).toInt())
+                        // Крупнее прежних 10sp/3dp: по такому чипу легко попасть
+                        // пальцем, переключение периода не «съедается» тапом мимо.
+                        setPadding(0, (7 * d).toInt(), 0, (7 * d).toInt())
                         background = android.graphics.drawable.GradientDrawable().apply {
-                            cornerRadius = 11 * d
+                            cornerRadius = 14 * d
                             setColor(0x22888888)
                         }
                         // равные доли: пять подписей в карточке 1/3 экрана
@@ -703,7 +711,7 @@ class WidgetAdapter(
                 val chipW = (row.width - (2 * d).toInt() * row.childCount) / row.childCount
                 val first = row.getChildAt(0) as? android.widget.TextView ?: return@post
                 val needW = labels.maxOf { first.paint.measureText(row.context.getString(it)) }
-                if (needW > chipW) setChipLabels(true)
+                if (needW + 2 * d > chipW) setChipLabels(true)
             }
             // Слушатель — на КАЖДОМ бинде: ViewHolder рециклится, и чип,
             // созданный один раз, навсегда запомнил бы ПЕРВУЮ панель — тапы
@@ -712,6 +720,8 @@ class WidgetAdapter(
                 val chip = row.getChildAt(i) as android.widget.TextView
                 chip.setOnClickListener {
                     periods.getOrNull(i)?.let { period ->
+                        chart?.resetZoom()
+                        chart?.clearTouchHighlight()
                         onChartPeriodSelected?.invoke(panel, period)
                     }
                 }
@@ -729,6 +739,8 @@ class WidgetAdapter(
             cv.maxPoints = panel.chartPoints
             cv.setMultiSeries(panel.series.map { parseColor(it.color, ChartView.DEFAULT_COLOR) })
             cv.showScale = panel.chartShowScale
+            cv.unitSuffix = panel.unitSuffix
+            cv.zoomEnabled = true
             cv.valueColorizer =
                 if (panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank())
                     { v ->

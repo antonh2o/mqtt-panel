@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -286,6 +287,9 @@ class DashboardActivity : AppCompatActivity() {
                 private fun openAt(e: android.view.MotionEvent): Boolean {
                     if (widgetAdapter.moveMode) return false
                     val child = binding.recyclerWidgets.findChildViewUnder(e.x, e.y) ?: return false
+                    // Тап по чипам периода, меню и другим кнопкам карточки —
+                    // это НЕ «тап по графику»: полноэкранный просмотр не открываем.
+                    if (isControlUnder(child, e.x - child.left, e.y - child.top)) return false
                     val holder = binding.recyclerWidgets.getChildViewHolder(child)
                     val panel = widgetAdapter.panelAt(holder.bindingAdapterPosition) ?: return false
                     if (panel.type != WidgetType.CHART && panel.type != WidgetType.MULTI_CHART) return false
@@ -1247,6 +1251,32 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /**
+     * Под пальцем на карточке оказался интерактивный элемент (чип периода,
+     * кнопка меню и т.п.)? Тогда одиночный тап принадлежит ему, а не
+     * открытию полноэкранного графика.
+     */
+    private fun isControlUnder(card: View, x: Float, y: Float): Boolean {
+        var v: View? = deepestChildAt(card, x, y)
+        while (v != null && v !== card) {
+            if (v.isClickable && v.visibility == View.VISIBLE) return true
+            v = v.parent as? View
+        }
+        return false
+    }
+
+    private fun deepestChildAt(group: View, x: Float, y: Float): View? {
+        if (group !is ViewGroup) return group
+        for (i in group.childCount - 1 downTo 0) {
+            val child = group.getChildAt(i)
+            if (child.visibility != View.VISIBLE) continue
+            if (x >= child.left && x < child.right && y >= child.top && y < child.bottom) {
+                return deepestChildAt(child, x - child.left, y - child.top) ?: child
+            }
+        }
+        return group
+    }
+
+    /**
      * Полноэкранный просмотр графика (двойной тап по карточке): точки — из
      * кэша адаптера, live обновляется через refreshFullscreen.
      */
@@ -1257,7 +1287,12 @@ class DashboardActivity : AppCompatActivity() {
             hasHistory = widgetAdapter.hasHistory(panel.id, isMulti),
             single = if (!isMulti) widgetAdapter.chartPointsOf(panel.id) else emptyList(),
             multi = if (isMulti) widgetAdapter.multiPointsOf(panel.id) else emptyMap(),
-            onPeriodSelected = { period -> onChartPeriodChanged(panel, period) }
+            // Панель берём из адаптера на момент тапа: после первого
+            // переключения периода исходный объект устаревает, и возврат
+            // на прежний период молча игнорировался (panel.historyPeriod == period).
+            onPeriodSelected = { period ->
+                onChartPeriodChanged(widgetAdapter.panelById(panel.id) ?: panel, period)
+            }
         )
         dlg.setOnDismissListener { fullscreenChart = null }
         fullscreenChart = dlg
