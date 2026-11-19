@@ -49,6 +49,9 @@ class MqttService : Service() {
 
         const val ACTION_CONNECT = "ru.mqtt.panel.CONNECT"
         const val ACTION_DISCONNECT = "ru.mqtt.panel.DISCONNECT"
+        /** Конфиг перезачитан (импорт/восстановление): сбросить всех клиентов —
+         *  свежие ClientID и креды вступят при следующем авто-подключении */
+        const val ACTION_CONFIG_CHANGED = "ru.mqtt.panel.CONFIG_CHANGED"
         /** Закрыть ОДНО подключение (выключатель на карточке / выход из дашборда выключенного) */
         const val ACTION_DISCONNECT_CONN = "ru.mqtt.panel.DISCONNECT_CONN"
         const val ACTION_SYNC_PANELS = "ru.mqtt.panel.SYNC_PANELS"
@@ -219,8 +222,9 @@ class MqttService : Service() {
                 mqttWorker.submit { disconnectConn(connId) }
                 maybeStop()
             }
-            ACTION_DISCONNECT -> {
+            ACTION_DISCONNECT, ACTION_CONFIG_CHANGED -> {
                 mqttWorker.submit { disconnectAll() }
+                authFailedUntil.clear()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -624,6 +628,15 @@ fun Context.stopMqttConnection(connectionId: Long) {
     val intent = Intent(this, MqttService::class.java).apply {
         action = MqttService.ACTION_DISCONNECT_CONN
         putExtra(MqttService.EXTRA_CONNECTION_ID, connectionId)
+    }
+    startService(intent)
+}
+
+/** Конфиг перезачитан (импорт/восстановление): сбросить клиентов, чтобы
+ *  новые ClientID/креды вступили в силу сразу, а не после рестарта приложения */
+fun Context.mqttConfigChanged() {
+    val intent = Intent(this, MqttService::class.java).apply {
+        action = MqttService.ACTION_CONFIG_CHANGED
     }
     startService(intent)
 }

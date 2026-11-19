@@ -1438,7 +1438,9 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<View>(R.id.layout_history_period).visibility =
             if (narodmon && type == WidgetType.CHART) View.VISIBLE else View.GONE
         val progress = type == WidgetType.PROGRESS_V || type == WidgetType.PROGRESS_H
-        // Динамический цвет значения/полосы прогресса — число, текст, график, прогресс
+        // Динамический цвет значения/полосы прогресса — число, текст, график,
+        // прогресс. У МУЛЬТИГРАФИКА его НЕТ (и секция скрыта): каждая линия
+        // красится своим персональным цветом серии
         root.findViewById<View>(R.id.layout_color_range).visibility =
             if (type == WidgetType.VALUE || type == WidgetType.TEXT || type == WidgetType.CHART || progress)
                 View.VISIBLE else View.GONE

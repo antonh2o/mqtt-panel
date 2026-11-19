@@ -720,6 +720,15 @@ class WidgetAdapter(
                 val chip = row.getChildAt(i) as android.widget.TextView
                 chip.setOnClickListener {
                     periods.getOrNull(i)?.let { period ->
+                        // мгновенная подсветка выбранного чипа: карточка не
+                        // перебиндивается сразу (перезагрузка истории идёт
+                        // в фоне), и без этого тап выглядит «ничего не сделал»
+                        for (j in 0 until row.childCount) {
+                            val c = row.getChildAt(j) as android.widget.TextView
+                            val on = j == i
+                            c.alpha = if (on) 1f else 0.45f
+                            c.setTypeface(c.typeface, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                        }
                         chart?.resetZoom()
                         chart?.clearTouchHighlight()
                         onChartPeriodSelected?.invoke(panel, period)
@@ -736,20 +745,24 @@ class WidgetAdapter(
          *  красятся по значению вместо цветов серий. */
         private fun bindMultiChart(panel: Panel) {
             val cv = chart ?: return
-            cv.maxPoints = panel.chartPoints
+            // ёмкость = max(chartPoints, объём загруженной истории): иначе
+            // недельная история (504 точки) на панели с chartPoints=10
+            // обрезается до 10 последних точек и график выглядит
+            // «не переключившимся» (как у одиночного, строка выше)
+            cv.maxPoints = maxOf(
+                panel.chartPoints,
+                panel.series.indices.maxOfOrNull {
+                    chartMultiHistory["${panel.id}:$it"]?.size ?: 0
+                } ?: 0
+            )
             cv.setMultiSeries(panel.series.map { parseColor(it.color, ChartView.DEFAULT_COLOR) })
             cv.showScale = panel.chartShowScale
             cv.unitSuffix = panel.unitSuffix
             cv.zoomEnabled = true
-            cv.valueColorizer =
-                if (panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank())
-                    { v ->
-                        ColorRange.resolve(
-                            panel.colorMin, panel.colorMid, panel.colorMax,
-                            panel.sliderMin, panel.sliderMax, v.toDouble()
-                        ) ?: parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
-                    }
-                else null
+            // у мультиграфика линии ВСЕГДА цветами серий: динамическая
+            // раскраска по значению здесь не применяется (персональный цвет
+            // каждой линии — из редактора серий)
+            cv.valueColorizer = null
             cv.clear()
             panel.series.indices.forEach { i ->
                 chartMultiHistory["${panel.id}:$i"]?.forEach { p -> cv.addMultiTimePoint(i, p.t, p.v) }
@@ -837,7 +850,8 @@ class WidgetAdapter(
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 }
                 row.addView(label)
-                // значение серии — цветом топика, рядом с подписью
+                // значение серии — цветом своего значения (динамический
+                // перекрывает цвет серии), рядом с подписью
                 chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let { p ->
                     val tvVal = android.widget.TextView(ctx).apply {
                         text = "  " + fmtLegend(p.v) + panel.unitSuffix

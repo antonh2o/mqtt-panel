@@ -25,6 +25,7 @@ import ru.mqtt.panel.data.IotMqttPanelImporter
 import ru.mqtt.panel.databinding.ActivityMainBinding
 import ru.mqtt.panel.mqtt.ConnectionState
 import ru.mqtt.panel.mqtt.MqttService
+import ru.mqtt.panel.mqtt.mqttConfigChanged
 
 class MainActivity : AppCompatActivity() {
 
@@ -58,7 +59,11 @@ class MainActivity : AppCompatActivity() {
                         if (ok) R.string.import_success else R.string.import_error,
                         Toast.LENGTH_LONG
                     ).show()
-                    if (ok) refreshFragment()
+                    if (ok) {
+                        // новые ClientID должны вступить сразу, а не после рестарта
+                        mqttConfigChanged()
+                        refreshFragment()
+                    }
                 }
             }
         }
@@ -82,7 +87,9 @@ class MainActivity : AppCompatActivity() {
                         return@launch
                     }
                     val config = report.config
-                    repository.importConfig(Gson().toJson(config))
+                    if (repository.importConfig(Gson().toJson(config))) {
+                        mqttConfigChanged()
+                    }
 
                     // Полный лог импорта в файл
                     ImportLog.write(this@MainActivity, report.details.joinToString("\n"))
@@ -354,7 +361,10 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity,
                         if (ok) R.string.yandex_restore_done else R.string.import_error,
                         Toast.LENGTH_LONG).show()
-                    if (ok) refreshFragment()
+                    if (ok) {
+                        mqttConfigChanged()
+                        refreshFragment()
+                    }
                 }
             }
             .setNegativeButton(R.string.cancel, null)

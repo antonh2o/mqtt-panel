@@ -173,10 +173,10 @@ class FullscreenChartDialog(
         )
         chart.showScale = panel.chartShowScale
         chart.unitSuffix = panel.unitSuffix
-        // Динамический цвет линии по значению (как на карточке):
-        // если заданы colorMin/Mid/Max — линия красится по диапазону,
-        // иначе — одним цветом серии/линии
-        if (panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank()) {
+        // Динамический цвет линии по значению — только у ОДИНОЧНОГО графика.
+        // У мультиграфика линии всегда цветами своих серий (персональные цвета
+        // из редактора; динамическая раскраска здесь не применяется)
+        if (!isMulti && panel.colorMin.isNotBlank() && panel.colorMid.isNotBlank() && panel.colorMax.isNotBlank()) {
             chart.valueColorizer = { v ->
                 ColorRange.resolve(
                     panel.colorMin, panel.colorMid, panel.colorMax,
@@ -224,12 +224,13 @@ class FullscreenChartDialog(
                 panel.sliderMin, panel.sliderMax, v.toDouble()
             )
         }
-        val valueColor = dynamic ?: if (isMulti) {
+        val valueColor = if (isMulti) {
+            // цвет показанной серии (динамическая раскраска — не для мультиграфика)
             displayIdx?.let { i ->
                 panel.series.getOrNull(i)?.color?.takeIf { it.isNotBlank() }
             }?.let { parseColor(it, Color.WHITE) } ?: Color.WHITE
         } else {
-            parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
+            dynamic ?: parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
         }
         tvValue.setTextColor(valueColor)
         // подпись НАД значением: у мультиграфика — НОМЕР + последняя серия
