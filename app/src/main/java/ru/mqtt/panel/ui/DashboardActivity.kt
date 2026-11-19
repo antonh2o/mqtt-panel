@@ -1030,7 +1030,12 @@ class DashboardActivity : AppCompatActivity() {
         historyLoading = true
         lifecycleScope.launch {
             try {
-                var first = true
+                // Лимит платформы ≈3 запроса/мин делится между минутным опросом
+                // значений и пакетом sensorsHistory. На время пакета опрос значений
+                // приостанавливается — весь лимит уходит истории, и графики
+                // грузятся через 21 с (а не через 45 с, как раньше)
+                ru.mqtt.panel.mqtt.NarodmonService.pollingPaused = true
+                var pauseMs = 0L          // первый график — сразу
                 for (panel in chartPanels) {
                     val sensorId = panel.topicSubscribe.toIntOrNull() ?: continue
                     val period = panel.historyPeriod ?: "day"
@@ -1039,12 +1044,17 @@ class DashboardActivity : AppCompatActivity() {
                     val fresh = System.currentTimeMillis() - (rt?.fetchedAt ?: 0L) < 30 * 60_000L
                     if (fresh && rt?.history?.isNotEmpty() == true && rt?.period == period) continue
 
-                    if (!first) delay(45_000L) // лимит платформы ≈3 запроса/мин
-                    first = false
+                    if (pauseMs > 0) delay(pauseMs)
                     val points = runCatching {
                         NarodmonApi.sensorsHistory(applicationContext, connection.apiKey, sensorId, period)
                     }.getOrElse { emptyList() }
-                    if (points.isEmpty()) continue
+                    if (points.isEmpty()) {
+                        // пусто или отказ (лимит) — плавно увеличиваем паузу
+                        // (21 → 42 → 84 → до 120 с), успех возвращает к 21 с
+                        pauseMs = minOf(maxOf(pauseMs, 21_000L) * 2, 120_000L)
+                        continue
+                    }
+                    pauseMs = 21_000L
 
                     withContext(Dispatchers.Main) {
                         widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
@@ -1059,6 +1069,8 @@ class DashboardActivity : AppCompatActivity() {
                     repository.saveRuntimeValues(connectionId, all)
                 }
             } finally {
+                // опрос значений возвращается сразу после пакета
+                ru.mqtt.panel.mqtt.NarodmonService.pollingPaused = false
                 historyLoading = false
             }
         }

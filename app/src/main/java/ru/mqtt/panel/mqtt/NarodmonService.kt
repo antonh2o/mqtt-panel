@@ -61,6 +61,13 @@ class NarodmonService : Service() {
         @Volatile
         var serviceAlive: Boolean = false
 
+        /** Пауза опроса значений: во время пакетной загрузки истории
+         *  (loadNarodmonChartHistory) весь лимит платформы ≈3 запроса/мин
+         *  отдаётся запросам sensorsHistory, иначе они конкурсируют
+         *  с минутным sensorsNearby и начинают получать отказы */
+        @Volatile
+        var pollingPaused: Boolean = false
+
         @Volatile
         var connectedAt: Long = 0L
 
@@ -77,7 +84,8 @@ class NarodmonService : Service() {
 
     private val pollLoop = object : Runnable {
         override fun run() {
-            pollOnce()
+            // во время пакетной загрузки истории значения не опрашиваем
+            if (!pollingPaused) pollOnce()
             handler.postDelayed(this, 60_000L * backoff)
         }
     }
