@@ -683,7 +683,8 @@ class WidgetAdapter(
                         setPadding(0, (7 * d).toInt(), 0, (7 * d).toInt())
                         background = android.graphics.drawable.GradientDrawable().apply {
                             cornerRadius = 14 * d
-                            setColor(0x22888888)
+                            // плашка чуть плотнее — контраст на светлой теме
+                            setColor(0x2E54634F)
                         }
                         // равные доли: пять подписей в карточке 1/3 экрана
                         // помещаются только так (wrap_content обрезался)
@@ -717,27 +718,33 @@ class WidgetAdapter(
             // Слушатель — на КАЖДОМ бинде: ViewHolder рециклится, и чип,
             // созданный один раз, навсегда запомнил бы ПЕРВУЮ панель — тапы
             // меняли период чужой карточки, а текущая не реагировала.
+            // Цвет текста чипов по теме: выбранный — акцентный (primary),
+            // невыбранный — вторичный текст темы (контраст на обеих темах)
+            val chipOn = row.context.getColor(R.color.md_theme_primary)
+            val chipOff =
+                if (ru.mqtt.panel.ui.ThemePrefs.isDark(row.context)) 0xFFB0BEC5.toInt()
+                else 0xFF54634F.toInt()
+            fun applyChip(c: android.widget.TextView, on: Boolean) {
+                c.alpha = if (on) 1f else 0.55f
+                c.setTypeface(c.typeface, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                c.setTextColor(if (on) chipOn else chipOff)
+            }
             for (i in 0 until row.childCount) {
                 val chip = row.getChildAt(i) as android.widget.TextView
+                applyChip(chip, panel.historyPeriod == periods[i])
                 chip.setOnClickListener {
                     periods.getOrNull(i)?.let { period ->
                         // мгновенная подсветка выбранного чипа: карточка не
                         // перебиндивается сразу (перезагрузка истории идёт
                         // в фоне), и без этого тап выглядит «ничего не сделал»
                         for (j in 0 until row.childCount) {
-                            val c = row.getChildAt(j) as android.widget.TextView
-                            val on = j == i
-                            c.alpha = if (on) 1f else 0.45f
-                            c.setTypeface(c.typeface, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                            applyChip(row.getChildAt(j) as android.widget.TextView, j == i)
                         }
                         chart?.resetZoom()
                         chart?.clearTouchHighlight()
                         onChartPeriodSelected?.invoke(panel, period)
                     }
                 }
-                val active = panel.historyPeriod == periods[i]
-                chip.alpha = if (active) 1f else 0.45f
-                chip.setTypeface(chip.typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             }
         }
 

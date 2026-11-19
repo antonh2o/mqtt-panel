@@ -222,8 +222,14 @@ class FullscreenChartDialog(
             }
             lastSeriesIdx
         } else shownSeriesIdx
+        // ФОЛБЭК первого открытия: live-обновлений ещё не было (lastSeriesIdx
+        // пуст) — показываем серию с САМОЙ СВЕЖЕЙ точкой, иначе значение и
+        // заголовок падали в белый запасной цвет и были не видны на светлой теме
+        val effectiveIdx = displayIdx
+            ?: panel.series.indices.filter { !multi[it].isNullOrEmpty() }
+                .maxByOrNull { multi[it]!!.last().t }
         val lastV: Float? = if (isMulti) {
-            displayIdx?.let { multi[it]?.lastOrNull()?.v }
+            effectiveIdx?.let { multi[it]?.lastOrNull()?.v }
                 ?: multi.values.lastOrNull()?.lastOrNull()?.v
         } else single.lastOrNull()?.v
         val dynamic = lastV?.let { v ->
@@ -234,9 +240,10 @@ class FullscreenChartDialog(
         }
         val valueColor = if (isMulti) {
             // цвет показанной серии (динамическая раскраска — не для мультиграфика)
-            displayIdx?.let { i ->
+            effectiveIdx?.let { i ->
                 panel.series.getOrNull(i)?.color?.takeIf { it.isNotBlank() }
-            }?.let { parseColor(it, Color.WHITE) } ?: Color.WHITE
+            }?.let { parseColor(it, Color.WHITE) }
+                ?: if (darkTheme) Color.WHITE else 0xFF1B261D.toInt()
         } else {
             dynamic ?: parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
         }
@@ -246,7 +253,7 @@ class FullscreenChartDialog(
         // одиночного — имя панели; значение — чистое «21.2 °C» крупным кеглем
         val manySeries = isMulti &&
             panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1
-        val seriesLabel = if (isMulti) displayIdx
+        val seriesLabel = if (isMulti) effectiveIdx
             ?.let { i ->
                 panel.series.getOrNull(i)?.let {
                     (if (manySeries) "${i + 1}. " else "") +
@@ -259,7 +266,7 @@ class FullscreenChartDialog(
         // серии, у одиночного — цвет линии графика
         tvTitle.setTextColor(valueColor)
         tvValue.text = if (isMulti) {
-            displayIdx?.let { i -> multi[i]?.lastOrNull()?.v }
+            effectiveIdx?.let { i -> multi[i]?.lastOrNull()?.v }
                 ?.let { fmtValue(it) + panel.unitSuffix }
                 ?: panel.lastValue.takeIf { it.isNotBlank() }?.plus(panel.unitSuffix)
                 ?: "—"
@@ -381,8 +388,12 @@ class FullscreenChartDialog(
         for (i in 0 until n) {
             val chip = chipsRow.getChildAt(i) as TextView
             val active = currentPeriod == periods[i]
-            chip.alpha = if (active) 1f else 0.45f
+            chip.alpha = if (active) 1f else 0.55f
             chip.setTypeface(chip.typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
+            chip.setTextColor(
+                if (active) 0xFF386A36.toInt()
+                else if (darkTheme) 0xFFB0BEC5.toInt() else 0xFF54634F.toInt()
+)
         }
     }
 }
