@@ -65,6 +65,9 @@
             android:layout_marginTop="4dp"
             android:orientation="vertical" />
 
+        <!-- Чипы периода истории (показываются у narodmon/Grafana-графиков) -->
+        <include layout="@layout/view_chart_periods" />
+
     <include layout="@layout/view_card_time" />
 
     </LinearLayout>

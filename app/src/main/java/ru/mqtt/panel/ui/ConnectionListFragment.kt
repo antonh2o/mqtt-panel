@@ -220,7 +220,9 @@ class ConnectionListFragment : Fragment() {
             val ctx = requireContext().applicationContext
             enabledMqtt.forEach { conn ->
                 val panels = repository.getPanels(conn.id)
-                ctx.startMqttConnect(conn, panels)
+                // force=false: авто-коннект уважает 5-минутный backoff после
+                // отказа авторизации (иначе LED флапает жёлтый/красный)
+                ctx.startMqttConnect(conn, panels, force = false)
             }
             enabledNm?.let { conn ->
                 if (ru.mqtt.panel.mqtt.NarodmonService.activeConnectionId == -1L) {

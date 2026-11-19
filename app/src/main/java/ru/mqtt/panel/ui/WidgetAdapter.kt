@@ -754,18 +754,10 @@ class WidgetAdapter(
             panel.series.indices.forEach { i ->
                 chartMultiHistory["${panel.id}:$i"]?.forEach { p -> cv.addMultiTimePoint(i, p.t, p.v) }
             }
-            tvValue?.text = withUnit(panel, panel.lastValue)
-            // большое значение красится цветом той серии, чьё значение пришло последним
-            tvValue?.let { tv ->
-                val idx = multiLastSeries[panel.id]
-                val seriesColor = idx?.let { i ->
-                    panel.series.getOrNull(i)?.color?.takeIf { it.isNotBlank() }
-                }
-                tv.setTextColor(
-                    seriesColor?.let { parseColor(it, ChartView.DEFAULT_COLOR) }
-                        ?:ChartView.DEFAULT_COLOR
-                )
-            }
+            // Верх карточки: значения ВСЕХ серий с подписями — подпись обычным
+            // цветом, значение жирным цветом своей серии (одна строка, автосайз
+            // ужмёт, длинные списки режутся многоточием)
+            bindMultiValuesRow(panel)
             // Тема карточки не одна — список тем виден в легенде
             tvTopic?.visibility = View.GONE
             buildLegend(panel)
@@ -777,6 +769,40 @@ class WidgetAdapter(
         private fun fmtLegend(v: Float): String {
             val s = String.format(java.util.Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
             return if (s.isEmpty() || s.endsWith(".")) s + "0" else s
+        }
+
+        /** Верх мультиграфика: «Подпись1 49 · Подпись2 55 …» цветами серий */
+        private fun bindMultiValuesRow(panel: Panel) {
+            val tv = tvValue ?: return
+            val ss = android.text.SpannableStringBuilder()
+            panel.series.forEachIndexed { i, ser ->
+                if (ser.topic.isBlank() && ser.label.isBlank()) return@forEachIndexed
+                val fallback = parseColor(legendPalette[i % legendPalette.size], ChartView.DEFAULT_COLOR)
+                val color = parseColor(ser.color, fallback)
+                val label = ser.label.ifBlank { ser.topic.substringAfterLast('/').ifBlank { ser.topic } }
+                if (ss.isNotEmpty()) ss.append("   ")
+                val at = ss.length
+                ss.append(label).append(' ')
+                ss.setSpan(
+                    android.text.style.ForegroundColorSpan(color),
+                    at, at + label.length + 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                val vStart = ss.length
+                val value = chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let { fmtLegend(it.v) + panel.unitSuffix }
+                    ?: panel.lastValue.takeIf { j -> j.isNotEmpty() && i == (multiLastSeries[panel.id] ?: 0) }
+                    ?: "—"
+                ss.append(value)
+                ss.setSpan(
+                    android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    vStart, ss.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                ss.setSpan(
+                    android.text.style.ForegroundColorSpan(color),
+                    vStart, ss.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            if (ss.isEmpty()) ss.append(panel.lastValue.ifBlank { "—" })
+            tv.text = ss
         }
 
         private fun buildLegend(panel: Panel) {
@@ -802,7 +828,10 @@ class WidgetAdapter(
                 }
                 row.addView(dot)
                 val label = android.widget.TextView(ctx).apply {
-                    text = s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
+                    // номер серии — как в подсказке крестовины, чтобы связать строку
+                    // подсказки «1. 21.4» с нужной линией легенды
+                    val numPrefix = if (panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1) "${i + 1}. " else ""
+                    text = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
                     textSize = 13f
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END

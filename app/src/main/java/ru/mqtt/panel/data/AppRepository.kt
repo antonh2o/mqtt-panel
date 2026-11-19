@@ -36,12 +36,19 @@ class AppRepository(private val context: Context) {
         // во время save()) — тогда читаем резервную копию, иначе приложение
         // «забыло» бы все панели и подключения, как уже случалось.
         val fromMain = parse(main)
+        val parsedCids = fromMain?.connections?.map { it.clientId }
         val config = (fromMain ?: parse(backup) ?: AppConfig()).fixIds()
         cache = config
         if (fromMain == null) {
             Log.w(TAG, "config.json повреждён/отсутствует — восстановлен из $BACKUP_NAME")
             save(config)
         } else {
+            // при загрузке могли сгенерироваться новые ClientID (пустые поля) —
+            // сразу сохраняем, чтобы CID был стабильным и между запусками
+            if (parsedCids != null &&
+                parsedCids != config.connections.map { it.clientId }) {
+                save(config)
+            }
             refreshBackup(main, backup)
         }
         config
@@ -74,7 +81,18 @@ class AppRepository(private val context: Context) {
     }
 
     /** Гарантирует уникальность id после импорта/загрузки */
-    private fun AppConfig.fixIds(): AppConfig {
+    /**
+     * regenerateClientIds=true — ТОЛЬКО путь импорта (importConfig): все
+     * MQTT-подключения получают свежие ClientID, чтобы одна резервная копия,
+     * развёрнутая на два устройства, не флапала (брокер рвёт дубликатор).
+     * Обычная загрузка (load) — false: ClientID СТАБИЛЕН. Раньше он
+     * перегенерировался при каждом запуске — брокеры с ACL по ClientID
+     * (Диллегейт: пускает только зарегистрированные mqttpanel-*) отвергали
+     * подключение после каждого рестарта приложения → вечный «флап»
+     * жёлтый/красный на новом подключении. Постоянные сессии и LWT-темы
+     * тоже требуют стабильного ID.
+     */
+    private fun AppConfig.fixIds(regenerateClientIds: Boolean = false): AppConfig {
         var cid = 0L
         val fixedConnections = connections.map {
             // Gson не вызывает конструктор: в конфигах до 0.2.19 полей narodmon/apiKey
@@ -87,17 +105,21 @@ class AppRepository(private val context: Context) {
                 enabled = it.enabled ?: true
             ).copy(id = ++cid)
         }
-        // ClientID уникален для каждого устройства: брокер разрывает
-        // соединение клиента с уже занятым ID, поэтому два приложения,
-        // развёрнутые из одной резервной копии, флапают, выбивая друг
-        // друга. Раньше ID менялся только если поле пустое — а в копии
-        // оно всегда заполнено, и дубликат выживал. Сессии у нас не
-        // хранятся (cleanSession), поэтому новый ID при каждом запуске/
-        // импорте безопасен. Народмон ходит через REST, MQTT-ID не нужен.
         val fixedConnections2 = fixedConnections.map {
-            if (it.narodmon) it else it.copy(
-                clientId = "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
-            )
+            when {
+                it.narodmon -> it
+                regenerateClientIds -> it.copy(
+                    clientId = "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
+                )
+                else -> it.copy(
+                    // стабильный CID: генерируем один раз (пустое поле),
+                    // дальше он живёт в config.json — брокеры с ACL по
+                    // ClientID видят одного и того же «клиента»
+                    clientId = it.clientId.ifBlank {
+                        "mqttpanel-" + java.util.UUID.randomUUID().toString().take(8)
+                    }
+                )
+            }
         }
         // Grafana-поля подключения (0.2.51+): чистим пустые строки
         val fixedConnectionsGh = fixedConnections2.map {
@@ -299,7 +321,7 @@ class AppRepository(private val context: Context) {
             val config: AppConfig = gson.fromJson(json, type) ?: return@withContext false
             // Проверяем минимальную валидность
             if (config.connections.any { it.host.isBlank() }) return@withContext false
-            val fixed = config.fixIds()
+            val fixed = config.fixIds(regenerateClientIds = true)
             // При восстановлении clientId у всех MQTT-подключений ОБЯЗАТЕЛЬНО
             // меняются на новые: одна и та же резервная копия может разворачиваться
             // на нескольких устройствах — одинаковый id заставляет брокера рвать

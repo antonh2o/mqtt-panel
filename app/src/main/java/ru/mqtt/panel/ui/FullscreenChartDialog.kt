@@ -35,6 +35,7 @@ class FullscreenChartDialog(
 
     private var panel: Panel = initialPanel
     private val chart = ChartView(context)
+    private val tvTitle = TextView(context)
     private val tvValue = TextView(context)
     private val tvTime = TextView(context)
     private val chipsRow = LinearLayout(context)
@@ -42,6 +43,12 @@ class FullscreenChartDialog(
     private var currentPeriod: String = initialPanel.historyPeriod ?: "day"
     private var lastSeriesIdx: Int? = null
     private var resetChip: TextView? = null
+
+    /** Серия, показанная крупным значением, и момент последнего переключения:
+     *  live-обновления приходят на каждую серию подряд — без троттлинга
+     *  подпись/значение/цвет мигали несколько раз в секунду */
+    private var shownSeriesIdx: Int? = null
+    private var seriesSwitchAt: Long = 0L
 
     /** Карточка, для которой открыт диалог — по ней фильтруются live-обновления */
     val panelId: Long get() = panel.id
@@ -63,7 +70,9 @@ class FullscreenChartDialog(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         )
         window?.setBackgroundDrawable(ColorDrawable(0xFF101216.toInt()))
-        chart.tooltipScale = 4f
+        // ×4 оказалась слишком крупной — подсказка перекрывала график;
+        // ×3 читается и не съедает кривую (маркеры растут как корень масштаба)
+        chart.tooltipScale = 3f
         chart.zoomEnabled = true
         chart.onZoomChanged = { zoomed ->
             resetChip?.visibility = if (zoomed) View.VISIBLE else View.GONE
@@ -92,11 +101,13 @@ class FullscreenChartDialog(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(28), dp(16), dp(14))
         }
-        root.addView(TextView(context).apply {
-            text = panel.name
-            textSize = 18f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.WHITE)
+        root.addView(tvTitle.apply {
+            // подпись над значением: у мультиграфика — последняя серия,
+            // у одиночного — имя панели; крупное значение ниже — чистое число
+            textSize = 16f
+            setTextColor(0xFFB0BEC5.toInt())
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         })
         tvValue.apply {
             // В 4 раза крупнее прежних 36sp: на большом экране значение — главный
@@ -107,8 +118,10 @@ class FullscreenChartDialog(
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             setPadding(0, dp(6), 0, dp(2))
+            // у мультиграфика потолок ниже (120sp): над значением живёт
+            // строка-подпись «2. Улица», композиция читается компактнее
             TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
-                this, 72, 144, 4, TypedValue.COMPLEX_UNIT_SP
+                this, 72, if (isMulti) 120 else 144, 4, TypedValue.COMPLEX_UNIT_SP
             )
         }
         root.addView(tvValue)
@@ -190,8 +203,19 @@ class FullscreenChartDialog(
         // большое значение: как на карточке — динамический цвет по диапазону
         // (min→середина→макс от последнего значения), иначе цвет последней
         // серии мультиграфика / цвет линии одиночного графика
+        // Троттлинг переключения показанной серии: новая принимается не чаще
+        // раза в 3 секунды, между сменами значение и подпись стабильны
+        val now = System.currentTimeMillis()
+        val displayIdx = if (shownSeriesIdx == null || shownSeriesIdx == lastSeriesIdx ||
+            now - seriesSwitchAt >= 3000L) {
+            if (shownSeriesIdx != lastSeriesIdx) {
+                shownSeriesIdx = lastSeriesIdx
+                seriesSwitchAt = now
+            }
+            lastSeriesIdx
+        } else shownSeriesIdx
         val lastV: Float? = if (isMulti) {
-            lastSeriesIdx?.let { multi[it]?.lastOrNull()?.v }
+            displayIdx?.let { multi[it]?.lastOrNull()?.v }
                 ?: multi.values.lastOrNull()?.lastOrNull()?.v
         } else single.lastOrNull()?.v
         val dynamic = lastV?.let { v ->
@@ -201,14 +225,33 @@ class FullscreenChartDialog(
             )
         }
         val valueColor = dynamic ?: if (isMulti) {
-            lastSeriesIdx?.let { i ->
+            displayIdx?.let { i ->
                 panel.series.getOrNull(i)?.color?.takeIf { it.isNotBlank() }
             }?.let { parseColor(it, Color.WHITE) } ?: Color.WHITE
         } else {
             parseColor(panel.chartColor, ChartView.DEFAULT_COLOR)
         }
         tvValue.setTextColor(valueColor)
-        tvValue.text = if (panel.lastValue.isBlank()) "—" else panel.lastValue + panel.unitSuffix
+        // подпись НАД значением: у мультиграфика — НОМЕР + последняя серия
+        // (нумерация совпадает с подсказкой крестовины и легендой), у
+        // одиночного — имя панели; значение — чистое «21.2 °C» крупным кеглем
+        val manySeries = isMulti &&
+            panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1
+        val seriesLabel = if (isMulti) displayIdx
+            ?.let { i ->
+                panel.series.getOrNull(i)?.let {
+                    (if (manySeries) "${i + 1}. " else "") +
+                        it.label.ifBlank { it.topic.substringAfterLast('/') }
+                }
+            }
+        else panel.name.substringAfterLast('·').trim()
+        tvTitle.text = seriesLabel ?: panel.name
+        tvValue.text = if (isMulti) {
+            displayIdx?.let { i -> multi[i]?.lastOrNull()?.v }
+                ?.let { fmtValue(it) + panel.unitSuffix }
+                ?: panel.lastValue.takeIf { it.isNotBlank() }?.plus(panel.unitSuffix)
+                ?: "—"
+        } else if (panel.lastValue.isBlank()) "—" else panel.lastValue + panel.unitSuffix
         val fmt = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
         val lastT = if (isMulti)
             multi.values.maxOfOrNull { it.lastOrNull()?.t ?: 0L } ?: panel.lastTime
@@ -237,7 +280,10 @@ class FullscreenChartDialog(
             }
             row.addView(dot)
             row.addView(TextView(context).apply {
-                text = s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
+                // номер серии — соответствие подсказке крестовины («1. …»)
+                val many = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1
+                text = (if (many) "${i + 1}. " else "") +
+                    s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
                 textSize = 14f
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END

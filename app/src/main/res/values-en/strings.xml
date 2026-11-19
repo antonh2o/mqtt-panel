@@ -104,7 +104,7 @@
     <string name="state_connected">connected</string>
     <string name="state_connecting">connecting…</string>
     <string name="state_error">connection error</string>
-    <string name="mqtt_parallel_status">Connected clients: %1$d of %2$d</string>
+    <string name="auth_failed_hint">Broker rejected the username/password — fix the connection settings</string>\n    <string name="mqtt_parallel_status">Connected clients: %1$d of %2$d</string>
     <string name="state_inactive">not connected</string>
     <string name="state_checking">checking…</string>
     <string name="state_unreachable">no answer</string>

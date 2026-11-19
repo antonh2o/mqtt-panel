@@ -60,6 +60,7 @@ class MqttService : Service() {
         const val EXTRA_PAYLOAD = "payload"
         const val EXTRA_QOS = "qos"
         const val EXTRA_RETAINED = "retained"
+        const val EXTRA_FORCE = "force"
 
         const val BROADCAST_MESSAGE = "ru.mqtt.panel.MESSAGE"
         const val BROADCAST_STATUS = "ru.mqtt.panel.STATUS"
@@ -153,6 +154,12 @@ class MqttService : Service() {
 
     private val entries = ConcurrentHashMap<Long, Entry>()
 
+    /** connId -> время, до которого НЕ ретраим подключение после отказа
+     *  авторизации: брокер принял TCP, но отклонил логин/пароль (CONNACK 4/5).
+     *  Ретраи каждые несколько секунд = «флап» жёлтый/красный; creds сами
+     *  не починятся — даём пользователю 5 минут на правку настроек */
+    private val authFailedUntil = ConcurrentHashMap<Long, Long>()
+
     /**
      * Подписка/отписка выполняется вне callback-потоков Paho: блокирующий
      * subscribe() ждёт SUBACK, а SUBACK обрабатывает тот же поток — отсюда
@@ -184,8 +191,9 @@ class MqttService : Service() {
                 val conn = intent.getSerializableExtra(EXTRA_CONNECTION) as? MqttConnection
                 @Suppress("UNCHECKED_CAST")
                 val panelList = intent.getSerializableExtra(EXTRA_PANELS) as? ArrayList<Panel> ?: ArrayList()
+                val force = intent.getBooleanExtra(EXTRA_FORCE, true)
                 startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.connecting)))
-                mqttWorker.submit { ensureConnected(conn, panelList) }
+                mqttWorker.submit { ensureConnected(conn, panelList, force) }
             }
             ACTION_SYNC_PANELS -> {
                 @Suppress("UNCHECKED_CAST")
@@ -235,9 +243,19 @@ class MqttService : Service() {
      * соединение НЕ рвётся — только дообновляются панели и подписки
      * (раньше смена дашборда переподключалась с нуля).
      */
-    private fun ensureConnected(conn: MqttConnection?, panelList: List<Panel>) {
+    private fun ensureConnected(conn: MqttConnection?, panelList: List<Panel>, force: Boolean = false) {
         if (conn == null) return
         activeConnectionId = conn.id
+        // после отказа авторизации не дёргаем брокера 5 минут (явное действие
+        // пользователя — открытие дашборда/выключатель — пробует сразу: вдруг
+        // креды уже исправлены)
+        val until = authFailedUntil[conn.id]
+        if (!force && until != null && System.currentTimeMillis() < until) {
+            ImportLog.write(this, "SKIP ${conn.name}: отказ авторизации, повтор через " +
+                "${(until - System.currentTimeMillis()) / 1000} с")
+            entries[conn.id]?.let { setState(it, ConnectionState.DISCONNECTED) }
+            return
+        }
         val existing = entries[conn.id]
         if (existing != null && existing.client?.isConnected == true) {
             existing.panels.clear()
@@ -278,6 +296,21 @@ class MqttService : Service() {
             mqttClient.connect(buildOptions(conn))
         } catch (e: Exception) {
             Log.e(TAG, "Connect error", e)
+            // CONNACK 4/5 (или текст) — брокер отклонил логин/пароль: ретраить
+            // бессмысленно, ставим стабильный красный и понятную подсказку
+            val isAuth = (e is org.eclipse.paho.client.mqttv3.MqttException &&
+                (e.reasonCode == 4 || e.reasonCode == 5)) ||
+                e.message?.contains("authorized", ignoreCase = true) == true ||
+                e.message?.contains("Bad user", ignoreCase = true) == true
+            if (isAuth) {
+                authFailedUntil[conn.id] = System.currentTimeMillis() + 300_000L
+                ImportLog.write(this,
+                    "AUTH FAILED ${conn.name}: брокер отклонил логин/пароль — " +
+                    "исправьте настройки подключения; повтор через 5 минут")
+                setState(entry, ConnectionState.DISCONNECTED)
+                broadcastStatusText(entry, getString(R.string.auth_failed_hint))
+                return
+            }
             ImportLog.write(this, "CONNECT FAILED ${conn.name}: ${e.javaClass.simpleName}: ${e.message}")
             setState(entry, ConnectionState.DISCONNECTED)
             broadcastStatusText(entry, "${getString(R.string.mqtt_connect_fail)}: ${e.message}")
@@ -573,12 +606,15 @@ class MqttService : Service() {
     }
 }
 
-/** Запуск/переиспользование подключения (не рвёт остальные) */
-fun Context.startMqttConnect(connection: MqttConnection, panels: List<Panel>) {
+/** Запуск/переиспользование подключения (не рвёт остальные).
+ *  force=true — явное действие пользователя: игнорирует 5-минутный
+ *  backoff после отказа авторизации (креды могли уже исправить) */
+fun Context.startMqttConnect(connection: MqttConnection, panels: List<Panel>, force: Boolean = true) {
     val intent = Intent(this, MqttService::class.java).apply {
         action = MqttService.ACTION_CONNECT
         putExtra(MqttService.EXTRA_CONNECTION, connection)
         putExtra(MqttService.EXTRA_PANELS, ArrayList(panels))
+        putExtra(MqttService.EXTRA_FORCE, force)
     }
     startForegroundService(intent)
 }

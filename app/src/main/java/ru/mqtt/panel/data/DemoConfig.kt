@@ -97,6 +97,7 @@ object DemoConfig {
                 type = WidgetType.MULTI_CHART,
                 chartPoints = 120,
                 span = 6,
+                unitSuffix = " °C",
                 series = listOf(
                     ChartSeries("$p/$S_HOME_T", "#43A047", "Дома"),
                     ChartSeries("$p/$S_STREET_T", "#1E88E5", "Улица")
