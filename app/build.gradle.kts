@@ -19,8 +19,8 @@ android {
         applicationId = "ru.mqtt.panel"
         minSdk = 24
         targetSdk = 36
-        versionCode = 89
-        versionName = "0.2.75"
+        versionCode = 90
+        versionName = "0.2.76"
         vectorDrawables.useSupportLibrary = true
         // store-сборка выключает самообновление (меню, автопроверку); см. флейворы
         buildConfigField("boolean", "STORE_BUILD", "false")

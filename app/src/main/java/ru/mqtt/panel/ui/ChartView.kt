@@ -183,6 +183,20 @@ class ChartView @JvmOverloads constructor(
         color = Color.WHITE
     }
 
+    /**
+     * Тёмная ли подложка под графиком: цвета пузыря подсказки и крестовины
+     * инвертируются (тёмная тема — тёмная плашка и светлый текст, светлая —
+     * белая плашка и тёмный текст, иначе белый текст на белой карточке
+     * просто не виден)
+     */
+    var tooltipDark = true
+        set(value) {
+            field = value
+            bubblePaint.color = if (value) 0xE6212124.toInt() else 0xF2FFFFFF.toInt()
+            bubbleTextPaint.color = if (value) Color.WHITE else 0xFF1B261D.toInt()
+            invalidate()
+        }
+
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.WHITE
@@ -713,12 +727,12 @@ class ChartView @JvmOverloads constructor(
         crossPaint.color = withAlpha(NEUTRAL_COLOR, 85)
         canvas.drawLine(px, 0f, px, h, crossPaint)
 
-        val values = ArrayList<Pair<Int, Float>>() // цвет, значение
+        val values = ArrayList<Triple<Int, Int, Float>>() // индекс серии, цвет, значение
         val markerScale = sqrt(tooltipScale).coerceAtLeast(1f)
-        series.forEach { s ->
-            val v = interpolateAt(s.points, t) ?: return@forEach
+        series.forEachIndexed { si, s ->
+            val v = interpolateAt(s.points, t) ?: return@forEachIndexed
             val color = valueColorizer?.invoke(v) ?: s.color
-            values += color to v
+            values += Triple(si, color, v)
             val py = y(v)
             markerPaint.color = 0xFF000000.toInt()
             canvas.drawCircle(px, py, 5.2f * density * markerScale, markerPaint)
@@ -729,20 +743,22 @@ class ChartView @JvmOverloads constructor(
         }
         if (values.isEmpty()) return
 
-        // подпись: время + значения (у мультиграфика — по строке на серию)
+        // подпись: время (нейтральное) + значения КАЖДОЙ серии её цветом —
+        // на мультиграфике сразу видно, какая линия сколько показала
         val timeText = ChartTimeFormat.tooltipLabel(t)
-        val lines = ArrayList<String>()
-        lines += timeText
-        values.forEachIndexed { i, (_, v) ->
-            val prefix = if (values.size > 1) "${i + 1}. " else ""
-            // единицы измерения — как у большого значения: «22.95 °C»
-            lines += prefix + withUnitSuffix(v)
+        val neutralText = if (tooltipDark) Color.WHITE else 0xFF1B261D.toInt()
+        val lines = ArrayList<Pair<String, Int>>()
+        lines += timeText to neutralText
+        // номер строки = индекс серии + 1: совпадает с нумерацией легенды
+        values.forEach { (si, color, v) ->
+            val prefix = if (values.size > 1) "${si + 1}. " else ""
+            lines += (prefix + withUnitSuffix(v)) to color
         }
         val ts = tooltipScale
         val padH = 5f * density * ts
         val padV = 4f * density * ts
         val lineH = bubbleTextPaint.textSize + 2f * density * ts
-        val boxW = lines.maxOf { bubbleTextPaint.measureText(it) } + padH * 2
+        val boxW = lines.maxOf { bubbleTextPaint.measureText(it.first) } + padH * 2
         val boxH = lineH * lines.size + padV * 2
         // пузырь уезжает от края: слева от пальца, если справа места нет
         var bx = px + 8f * density * ts
@@ -752,7 +768,8 @@ class ChartView @JvmOverloads constructor(
         val r = 4f * density * ts
         canvas.drawRoundRect(bx, by, bx + boxW, by + boxH, r, r, bubblePaint)
         bubbleTextPaint.textAlign = Paint.Align.LEFT
-        lines.forEachIndexed { i, text ->
+        lines.forEachIndexed { i, (text, color) ->
+            bubbleTextPaint.color = color
             canvas.drawText(text, bx + padH, by + padV + lineH * (i + 1) - 3f * density, bubbleTextPaint)
         }
     }

@@ -60,6 +60,10 @@ class FullscreenChartDialog(
     )
     private val isMulti = panel.type == WidgetType.MULTI_CHART
 
+    /** Тёмный ли полноэкранный: следует теме приложения (светлая тема —
+     *  светлый фон и тёмные тексты, тёмная — как было) */
+    private val darkTheme = ru.mqtt.panel.ui.ThemePrefs.isDark(context)
+
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
@@ -69,10 +73,13 @@ class FullscreenChartDialog(
         window?.setLayout(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         )
-        window?.setBackgroundDrawable(ColorDrawable(0xFF101216.toInt()))
+        window?.setBackgroundDrawable(
+            ColorDrawable(if (darkTheme) 0xFF101216.toInt() else 0xFFF7F9F5.toInt())
+        )
         // ×4 оказалась слишком крупной — подсказка перекрывала график;
         // ×3 читается и не съедает кривую (маркеры растут как корень масштаба)
         chart.tooltipScale = 3f
+        chart.tooltipDark = darkTheme
         chart.zoomEnabled = true
         chart.onZoomChanged = { zoomed ->
             resetChip?.visibility = if (zoomed) View.VISIBLE else View.GONE
@@ -104,8 +111,8 @@ class FullscreenChartDialog(
         root.addView(tvTitle.apply {
             // подпись над значением: у мультиграфика — последняя серия,
             // у одиночного — имя панели; крупное значение ниже — чистое число
-            textSize = 16f
-            setTextColor(0xFFB0BEC5.toInt())
+            textSize = 22f
+            setTextColor(0xFF54634F.toInt())
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         })
@@ -138,6 +145,7 @@ class FullscreenChartDialog(
             textSize = 12f
             gravity = Gravity.END
             setPadding(0, dp(4), 0, 0)
+            setTextColor(if (darkTheme) 0xFFB0BEC5.toInt() else 0xFF54634F.toInt())
         }
         root.addView(tvTime)
         return root
@@ -247,6 +255,9 @@ class FullscreenChartDialog(
             }
         else panel.name.substringAfterLast('·').trim()
         tvTitle.text = seriesLabel ?: panel.name
+        // заголовок крупный и ЦВЕТОМ: у мультиграфика — цвет показанной
+        // серии, у одиночного — цвет линии графика
+        tvTitle.setTextColor(valueColor)
         tvValue.text = if (isMulti) {
             displayIdx?.let { i -> multi[i]?.lastOrNull()?.v }
                 ?.let { fmtValue(it) + panel.unitSuffix }

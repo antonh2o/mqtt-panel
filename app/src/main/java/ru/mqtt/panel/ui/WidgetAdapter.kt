@@ -608,6 +608,7 @@ class WidgetAdapter(
             cv.showScale = panel.chartShowScale
             cv.unitSuffix = panel.unitSuffix
             cv.zoomEnabled = true
+            cv.tooltipDark = ThemePrefs.isDark(cv.context)
             // динамическая раскраска линии по значению (мин→середина→макс),
             // если у панели заданы все три цвета диапазона
             cv.valueColorizer =
@@ -759,6 +760,7 @@ class WidgetAdapter(
             cv.showScale = panel.chartShowScale
             cv.unitSuffix = panel.unitSuffix
             cv.zoomEnabled = true
+            cv.tooltipDark = ThemePrefs.isDark(cv.context)
             // у мультиграфика линии ВСЕГДА цветами серий: динамическая
             // раскраска по значению здесь не применяется (персональный цвет
             // каждой линии — из редактора серий)

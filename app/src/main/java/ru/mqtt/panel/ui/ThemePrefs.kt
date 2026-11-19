@@ -37,6 +37,13 @@ object ThemePrefs {
         apply(context)
     }
 
+    /** Тёмный ли ЭКРАН сейчас (с учётом «как в системе»): фон и тексты
+     *  полноэкранных диалогов/крестовины подстраиваются под это */
+    fun isDark(context: Context): Boolean =
+        (context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
     /** Подсветка активной кнопки темы на тулбаре: активная — ярче */
     fun alphaFor(context: Context, mode: String): Float =
         if (get(context) == mode) 1f else 0.35f
