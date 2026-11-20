@@ -17,6 +17,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
+            <ImageView
+                android:id="@+id/drag_handle"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="start|center_vertical"
+                android:layout_marginStart="-2dp"
+                android:padding="2dp"
+                android:src="@drawable/ic_drag_handle"
+                android:visibility="gone"
+                android:contentDescription="@string/drag_handle" />
+
             <TextView
                 android:id="@+id/tv_name"
                 android:layout_width="match_parent"
@@ -48,13 +59,35 @@
             android:textStyle="bold"
             android:text="0" />
 
-        <com.google.android.material.slider.Slider
-            android:id="@+id/slider_widget"
+        <!-- Горизонтальный — Material Slider (шаг/тики «из коробки»),
+             вертикальный — свой VerticalSliderView: Material Slider не умеет
+             вертикальную ориентацию, а поворот давал толстый трек и растянутый
+             ползунок. Показывается один из двух (WidgetAdapter.bindSlider). -->
+        <FrameLayout
+            android:id="@+id/slider_wrap"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:valueFrom="0"
-            android:valueTo="100"
-            android:value="0" />
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_widget"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:valueFrom="0"
+                android:valueTo="100"
+                android:value="0"
+                app:tickVisible="false" />
+
+            <ru.mqtt.panel.ui.VerticalSliderView
+                android:id="@+id/slider_vertical"
+                android:layout_width="match_parent"
+                android:layout_height="130dp"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+        </FrameLayout>
 
         <TextView
             android:id="@+id/tv_topic"

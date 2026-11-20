@@ -87,7 +87,7 @@ class ChartView @JvmOverloads constructor(
     var tooltipScale: Float = 1f
         set(value) {
             field = value.coerceIn(1f, 6f)
-            bubbleTextPaint.textSize = 9.5f * density * field
+            bubbleTextPaint.textSize = 16f * density * field
             invalidate()
         }
 
@@ -124,7 +124,7 @@ class ChartView @JvmOverloads constructor(
 
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f
+        strokeWidth = 1.8f * density
         color = withAlpha(DEFAULT_COLOR, GRID_ALPHA)
     }
 
@@ -169,7 +169,8 @@ class ChartView @JvmOverloads constructor(
 
     private val crossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 1f * density
+        // 1dp на карточке было почти не видно — крестовина терялась на сетке
+        strokeWidth = 1.8f * density
         color = withAlpha(NEUTRAL_COLOR, 70)
     }
 
@@ -179,7 +180,7 @@ class ChartView @JvmOverloads constructor(
     }
 
     private val bubbleTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = 9.5f * density
+        textSize = 16f * density
         color = Color.WHITE
     }
 
@@ -590,6 +591,17 @@ class ChartView @JvmOverloads constructor(
             level += step
         }
 
+        // ВЕРТИКАЛЬНАЯ СЕТКА рисуется ВСЕГДА, фиксированным шагом (четверти
+        // ширины) — как в режиме «нет данных» выше. Раньше вертикали зависели
+        // от подписей времени: на коротких периодах (час) и на узких карточках
+        // подписи не влезали и сетка исчезала целиком — графики выглядели
+        // «без сетки». Подписи времени при этом остаются по «красивым»
+        // моментам (midTicks) — сетка это фон, привязки к подписям не требует.
+        for (i in 1..3) {
+            val gx = gutter + i * w / 4f
+            canvas.drawLine(gx, 0f, gx, h, gridPaint)
+        }
+
         // вертикальные линии — в тех же позициях, что подписи времени снизу.
         // Число меток ограничено шириной подписи: «14:21:27» при шаге на глаз
         // наезжала на соседнюю, подписи шли внахлёст.
@@ -624,7 +636,6 @@ class ChartView @JvmOverloads constructor(
             if (!clash) break
             midTicks.removeAt(midTicks.lastIndex)
         }
-        midTicks.forEach { (gx, _) -> canvas.drawLine(gx, 0f, gx, h, gridPaint) }
         gridPaint.pathEffect = null
         scalePaint.textAlign = Paint.Align.LEFT
         drawable.forEach { s ->
@@ -728,6 +739,9 @@ class ChartView @JvmOverloads constructor(
         canvas.drawLine(px, 0f, px, h, crossPaint)
 
         val values = ArrayList<Triple<Int, Int, Float>>() // индекс серии, цвет, значение
+        // Точки-маркеры крупнее: на карточке 1/3 ширины прежние 4dp сливались
+        // с линией графика. На полном экране маркер растёт как sqrt(scale) —
+        // иначе при tooltipScale=3 он закрывал бы половину графика.
         val markerScale = sqrt(tooltipScale).coerceAtLeast(1f)
         series.forEachIndexed { si, s ->
             val v = interpolateAt(s.points, t) ?: return@forEachIndexed
@@ -735,11 +749,11 @@ class ChartView @JvmOverloads constructor(
             values += Triple(si, color, v)
             val py = y(v)
             markerPaint.color = 0xFF000000.toInt()
-            canvas.drawCircle(px, py, 5.2f * density * markerScale, markerPaint)
+            canvas.drawCircle(px, py, 7.2f * density * markerScale, markerPaint)
             markerPaint.color = color
-            canvas.drawCircle(px, py, 4f * density * markerScale, markerPaint)
+            canvas.drawCircle(px, py, 5.6f * density * markerScale, markerPaint)
             markerPaint.color = Color.WHITE
-            canvas.drawCircle(px, py, 1.6f * density * markerScale, markerPaint)
+            canvas.drawCircle(px, py, 2.2f * density * markerScale, markerPaint)
         }
         if (values.isEmpty()) return
 
@@ -821,7 +835,7 @@ class ChartView @JvmOverloads constructor(
     companion object {
         const val DEFAULT_COLOR = 0xFF4CAF50.toInt()
         private const val FILL_ALPHA = 18
-        private const val GRID_ALPHA = 28
+        private const val GRID_ALPHA = 46
         private const val TEXT_ALPHA = 75
         private const val NEUTRAL_COLOR = 0xFF9E9E9E.toInt()
     }

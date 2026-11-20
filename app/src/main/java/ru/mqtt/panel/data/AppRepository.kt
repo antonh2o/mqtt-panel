@@ -152,6 +152,13 @@ class AppRepository(private val context: Context) {
                 colorMin = it.colorMin ?: "",
                 colorMid = it.colorMid ?: "",
                 colorMax = it.colorMax ?: "",
+                // конфиги до 0.2.79: множителя/точности/шага/кнопочных полей нет,
+                // Gson оставит null despite non-null типы — приводим к дефолтам
+                factor = it.factor ?: 1.0,
+                sliderStep = it.sliderStep ?: 0.0,
+                sliderVertical = it.sliderVertical ?: false,
+                releasePayload = it.releasePayload ?: "",
+                repeatIntervalMs = it.repeatIntervalMs ?: 0,
                 // конфиги из 0.2.36–0.2.47 могли хранить в historyPeriod текст-метку
                 // («Сутки») — редактор писал её при сохранении без выбора периода
                 historyPeriod = it.historyPeriod?.takeIf { p ->

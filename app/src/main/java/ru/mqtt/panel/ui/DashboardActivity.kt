@@ -372,6 +372,7 @@ class DashboardActivity : AppCompatActivity() {
     /** Меню дашборда: Подключение / Сканер / Добавить / Перемещение */
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         menuInflater.inflate(R.menu.menu_dashboard, menu)
+        MenuIcons.forceShowIcons(menu)
         return true
     }
 
@@ -413,6 +414,7 @@ class DashboardActivity : AppCompatActivity() {
                 connecting = svcState() == ConnectionState.CONNECTING)
         }
         invalidateOptionsMenu()
+        // notifyItemRangeChanged — гарантирует onBind для всех видимых карточек
         widgetAdapter.notifyDataSetChanged()
     }
 
@@ -643,6 +645,10 @@ class DashboardActivity : AppCompatActivity() {
             // Мгновенный показ последних значений и графиков из runtime-кэша
             val cached = repository.loadRuntimeValues(connectionId)
             widgetAdapter.applyCached(cached)
+            // Кэш сообщений сервиса перекрывает кэш значений: он свежее и
+            // спасает редкие retained-топики (wanip), для которых runtime-кэш
+            // пуст, потому что значение как-то раз не дошло до адаптера
+            applyServiceReplay()
             binding.tvEmpty.visibility = if (panels.isEmpty()) View.VISIBLE else View.GONE
 
             // Графики Народмона: подтянуть историю за сутки (пачками, с паузами
@@ -710,10 +716,23 @@ class DashboardActivity : AppCompatActivity() {
         setupSpanPicker(root, Span.fromSpanCount(panel.span))
         root.findViewById<EditText>(R.id.et_min).setText(panel.sliderMin.toString())
         root.findViewById<EditText>(R.id.et_max).setText(panel.sliderMax.toString())
+        root.findViewById<EditText>(R.id.et_step).setText(
+            if (panel.sliderStep > 0) panel.sliderStep.toString() else ""
+        )
+        root.findViewById<android.widget.CheckBox>(R.id.cb_slider_vertical).isChecked = panel.sliderVertical
         root.findViewById<EditText>(R.id.et_on).setText(panel.onPayload)
         root.findViewById<EditText>(R.id.et_off).setText(panel.offPayload)
         root.findViewById<EditText>(R.id.et_payload).setText(panel.buttonPayload)
+        root.findViewById<EditText>(R.id.et_release_payload).setText(panel.releasePayload)
+        root.findViewById<EditText>(R.id.et_repeat_interval).setText(
+            if (panel.repeatIntervalMs > 0) panel.repeatIntervalMs.toString() else ""
+        )
         root.findViewById<EditText>(R.id.et_points).setText(panel.chartPoints.toString())
+        root.findViewById<EditText>(R.id.et_factor).setText(
+            if (panel.factor != 1.0) panel.factor.toString() else ""
+        )
+        root.findViewById<EditText>(R.id.et_decimals).setText(panel.decimals?.toString() ?: "")
+        root.findViewById<android.widget.CheckBox>(R.id.cb_retained).isChecked = panel.retained
         setupChartOptions(root, panel.chartColor, panel.chartShowScale)
         setupMultiChart(root, panel)
         setupSensorPicker(root)
@@ -755,6 +774,8 @@ class DashboardActivity : AppCompatActivity() {
         root.findViewById<EditText>(R.id.et_off).setText("0")
         root.findViewById<EditText>(R.id.et_payload).setText("ON")
         root.findViewById<EditText>(R.id.et_points).setText("50")
+        root.findViewById<EditText>(R.id.et_factor).setText("")
+        root.findViewById<EditText>(R.id.et_decimals).setText("")
         setupTypePicker(root, WidgetType.VALUE)
         setupSpanPicker(root, Span.THIRD)
         setupChartOptions(root, DEFAULT_CHART_COLOR, true)
@@ -1423,6 +1444,9 @@ class DashboardActivity : AppCompatActivity() {
             if (type == WidgetType.SLIDER) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.layout_button).visibility =
             if (type == WidgetType.BUTTON) View.VISIBLE else View.GONE
+        // шаг и вертикальность — только у слайдера
+        root.findViewById<View>(R.id.layout_slider_opts).visibility =
+            if (type == WidgetType.SLIDER) View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.layout_chart).visibility =
             if (type == WidgetType.CHART || type == WidgetType.MULTI_CHART) View.VISIBLE else View.GONE
         // У мультиграфика общий цвет линии не выбирается — цвета задаются в сериях
@@ -1449,7 +1473,8 @@ class DashboardActivity : AppCompatActivity() {
         // Период истории — только у narodmon-графиков
         root.findViewById<View>(R.id.layout_history_period).visibility =
             if (narodmon && type == WidgetType.CHART) View.VISIBLE else View.GONE
-        val progress = type == WidgetType.PROGRESS_V || type == WidgetType.PROGRESS_H
+        val progress = type == WidgetType.PROGRESS_V || type == WidgetType.PROGRESS_H ||
+            type == WidgetType.PROGRESS_C
         // Динамический цвет значения/полосы прогресса — число, текст, график,
         // прогресс. У МУЛЬТИГРАФИКА его НЕТ (и секция скрыта): каждая линия
         // красится своим персональным цветом серии
@@ -1468,6 +1493,14 @@ class DashboardActivity : AppCompatActivity() {
                 View.GONE else View.VISIBLE
         root.findViewById<View>(R.id.layout_unit).visibility = unitVisible
         root.findViewById<View>(R.id.unit_presets_scroll).visibility = unitVisible
+        // Множитель и точность имеют смысл там, где значение — число
+        root.findViewById<View>(R.id.layout_factor_precision).visibility =
+            if (type == WidgetType.SWITCH || type == WidgetType.BUTTON || type == WidgetType.LED)
+                View.GONE else View.VISIBLE
+        // Retain — флаг публикуемого сообщения: только у типов, которые пишут в брокер
+        root.findViewById<View>(R.id.cb_retained).visibility =
+            if (type == WidgetType.SWITCH || type == WidgetType.BUTTON || type == WidgetType.SLIDER)
+                View.VISIBLE else View.GONE
         root.findViewById<View>(R.id.cb_show_time).visibility = View.VISIBLE
         // Переключились на мультиграфик при пустом списке — сразу одна пустая серия
         root.findViewById<View>(R.id.btn_add_series).setOnClickListener { addSeriesRow(root, null) }
@@ -1693,10 +1726,21 @@ class DashboardActivity : AppCompatActivity() {
             qos = root.findViewById<EditText>(R.id.et_qos).text.toString().toIntOrNull() ?: 0,
             sliderMin = root.findViewById<EditText>(R.id.et_min).text.toString().toDoubleOrNull() ?: 0.0,
             sliderMax = root.findViewById<EditText>(R.id.et_max).text.toString().toDoubleOrNull() ?: 100.0,
+            sliderStep = root.findViewById<EditText>(R.id.et_step).text.toString()
+                .toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0,
+            sliderVertical = root.findViewById<android.widget.CheckBox>(R.id.cb_slider_vertical).isChecked,
             onPayload = root.findViewById<EditText>(R.id.et_on).text.toString().ifBlank { "1" },
             offPayload = root.findViewById<EditText>(R.id.et_off).text.toString().ifBlank { "0" },
             buttonPayload = root.findViewById<EditText>(R.id.et_payload).text.toString().ifBlank { "ON" },
+            releasePayload = root.findViewById<EditText>(R.id.et_release_payload).text.toString().trim(),
+            repeatIntervalMs = root.findViewById<EditText>(R.id.et_repeat_interval).text.toString()
+                .toIntOrNull()?.coerceAtLeast(0) ?: 0,
             chartPoints = root.findViewById<EditText>(R.id.et_points).text.toString().toIntOrNull() ?: 50,
+            factor = root.findViewById<EditText>(R.id.et_factor).text.toString()
+                .toDoubleOrNull()?.takeIf { it != 0.0 } ?: 1.0,
+            decimals = root.findViewById<EditText>(R.id.et_decimals).text.toString()
+                .toIntOrNull()?.coerceIn(0, 6),
+            retained = root.findViewById<android.widget.CheckBox>(R.id.cb_retained).isChecked,
             chartColor = colors.tag as? String ?: DEFAULT_CHART_COLOR,
             chartShowScale = root.findViewById<android.widget.CheckBox>(R.id.cb_show_scale).isChecked,
             span = currentSpan(root.findViewById(R.id.et_span)).spanCount,
@@ -1756,10 +1800,22 @@ class DashboardActivity : AppCompatActivity() {
         val lm = LocalBroadcastManager.getInstance(this)
         lm.registerReceiver(statusReceiver, IntentFilter(MqttService.BROADCAST_STATUS))
         lm.registerReceiver(messageReceiver, IntentFilter(MqttService.BROADCAST_MESSAGE))
+        // Сервис подписан раньше, чем зарегистрирован приёмник: retained-
+        // сообщения (wanip публикуется раз в минуты) приходили в пустоту и
+        // карточка пустовала. Забираем кэш последних сообщений сервиса.
+        applyServiceReplay()
         // После перезахода/возврата: соединение могло умереть, пока экрана не было
         if (!userDisconnected) ensureConnected()
         // Запускаем тикер обновления аптайма на статус-строке
         uptimeTicker.sendEmptyMessage(0)
+    }
+
+    /** Значения из кэша сообщений сервиса — карточки, пропустившие retained,
+     *  оживают сразу, не дожидаясь следующего сообщения (у wanip это минуты) */
+    private fun applyServiceReplay() {
+        for ((topic, payload, time) in MqttService.replayLast(connectionId)) {
+            widgetAdapter.updateValueByTopic(topic, payload, time)
+        }
     }
 
     override fun onPause() {

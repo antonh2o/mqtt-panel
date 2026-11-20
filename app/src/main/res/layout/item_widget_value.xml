@@ -17,6 +17,18 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
+            <!-- Drag-handle: виден только в режиме перемещения -->
+            <ImageView
+                android:id="@+id/drag_handle"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="start|center_vertical"
+                android:layout_marginStart="-2dp"
+                android:padding="2dp"
+                android:src="@drawable/ic_drag_handle"
+                android:visibility="gone"
+                android:contentDescription="@string/drag_handle" />
+
             <TextView
                 android:id="@+id/tv_name"
                 android:layout_width="match_parent"

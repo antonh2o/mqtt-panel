@@ -67,6 +67,13 @@ class FullscreenChartDialog(
     private val density = context.resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
+    /** Основной и вторичный цвета ТЕКСТА полноэкранного экрана. Диалог создан
+     *  на теме Theme_Black_NoTitleBar_Fullscreen (тёмный фон → светлый текст по
+     *  умолчанию), а фон мы перекрашиваем под тему приложения: при светлой теме
+     *  легенда и время рисовались белым по белому и выглядели «бледными». */
+    private val textPrimary = if (darkTheme) 0xFFEAF2E6.toInt() else 0xFF171F17.toInt()
+    private val textSecondary = if (darkTheme) 0xFFC3D1BE.toInt() else 0xFF33412F.toInt()
+
     init {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         setContentView(buildView())
@@ -76,9 +83,10 @@ class FullscreenChartDialog(
         window?.setBackgroundDrawable(
             ColorDrawable(if (darkTheme) 0xFF101216.toInt() else 0xFFF7F9F5.toInt())
         )
-        // ×4 оказалась слишком крупной — подсказка перекрывала график;
-        // ×3 читается и не съедает кривую (маркеры растут как корень масштаба)
-        chart.tooltipScale = 3f
+        // Базовый кегль подсказки вырос до 13dp (на карточке читался мелко),
+        // поэтому множитель полного экрана снижен 3 → 2.2: итоговый размер
+        // остался прежним (~29dp) и не съедает кривую
+        chart.tooltipScale = 2.2f
         chart.tooltipDark = darkTheme
         chart.zoomEnabled = true
         chart.onZoomChanged = { zoomed ->
@@ -112,7 +120,7 @@ class FullscreenChartDialog(
             // подпись над значением: у мультиграфика — последняя серия,
             // у одиночного — имя панели; крупное значение ниже — чистое число
             textSize = 22f
-            setTextColor(0xFF54634F.toInt())
+            setTextColor(textPrimary)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         })
@@ -142,10 +150,10 @@ class FullscreenChartDialog(
         ).apply { setMargins(0, dp(10), 0, dp(6)) }
         root.addView(chipsRow)
         tvTime.apply {
-            textSize = 12f
+            textSize = 13f
             gravity = Gravity.END
             setPadding(0, dp(4), 0, 0)
-            setTextColor(if (darkTheme) 0xFFB0BEC5.toInt() else 0xFF54634F.toInt())
+            setTextColor(textSecondary)
         }
         root.addView(tvTime)
         return root
@@ -303,14 +311,17 @@ class FullscreenChartDialog(
                 val many = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1
                 text = (if (many) "${i + 1}. " else "") +
                     s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
-                textSize = 14f
+                textSize = 16f
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
+                // цвет задаётся ЯВНО: у диалога тёмная тема окна, а фон —
+                // светлый, текст по умолчанию был почти не виден
+                setTextColor(textPrimary)
             })
             multi[i]?.lastOrNull()?.let { p ->
                 row.addView(TextView(context).apply {
                     text = "  " + fmtValue(p.v) + panel.unitSuffix
-                    textSize = 14f
+                    textSize = 16f
                     setTypeface(typeface, Typeface.BOLD)
                     setTextColor(parseColor(s.color, ChartView.DEFAULT_COLOR))
                     layoutParams = LinearLayout.LayoutParams(
@@ -367,6 +378,7 @@ class FullscreenChartDialog(
             textSize = 15f
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(6), dp(12), dp(6))
+            setTextColor(textPrimary)
             background = android.graphics.drawable.GradientDrawable().apply {
                 cornerRadius = dp(18).toFloat()
                 setColor(0x44E0A030)
@@ -385,15 +397,21 @@ class FullscreenChartDialog(
     private fun highlightChips() {
         // последний ребёнок — кнопка сброса, у неё нет «активного» периода
         val n = minOf(chipsRow.childCount, periods.size)
+        // Активный чип — сплошная заливка акцентом (в светлой теме тёмно-
+        // зелёная с белым текстом, в тёмной — светло-зелёная с тёмным):
+        // только жирность на бледных плашках читалась плохо.
+        val onBg = if (darkTheme) 0xFF9DD697.toInt() else 0xFF386A36.toInt()
+        val onFg = if (darkTheme) 0xFF003900.toInt() else 0xFFFFFFFF.toInt()
+        val offBg = if (darkTheme) 0x40BBCBB3 else 0x2E54634F
+        val offFg = if (darkTheme) 0xFFC3D1BE.toInt() else 0xFF3A4A36.toInt()
         for (i in 0 until n) {
             val chip = chipsRow.getChildAt(i) as TextView
             val active = currentPeriod == periods[i]
-            chip.alpha = if (active) 1f else 0.55f
+            chip.alpha = 1f
             chip.setTypeface(chip.typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
-            chip.setTextColor(
-                if (active) 0xFF386A36.toInt()
-                else if (darkTheme) 0xFFB0BEC5.toInt() else 0xFF54634F.toInt()
-)
+            chip.setTextColor(if (active) onFg else offFg)
+            (chip.background as? android.graphics.drawable.GradientDrawable)
+                ?.setColor(if (active) onBg else offBg)
         }
     }
 }

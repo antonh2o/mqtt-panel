@@ -22,6 +22,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 /**
  * Адаптер виджетов на экране дашборда.
@@ -137,7 +138,9 @@ class WidgetAdapter(
         panel.lastValue = value
         if (time > panel.lastTime) panel.lastTime = time
         if (panel.type == WidgetType.CHART) {
-            parseNumber(value)?.let { d ->
+            // множитель применяется и к точке: шкала/линия должны быть в тех же
+            // единицах, что и подпись значения (см. ValueFormat.scaled)
+            ru.mqtt.panel.data.ValueFormat.scaled(value, panel.factor)?.let { d ->
                 val v = d.toFloat()
                 val history = chartHistory.getOrPut(panel.id) { mutableListOf() }
                 history.add(ChartView.TimePoint(time, v))
@@ -161,7 +164,7 @@ class WidgetAdapter(
         panel.lastValue = value
         multiLastSeries[panel.id] = seriesIndex
         if (time > panel.lastTime) panel.lastTime = time
-        parseNumber(value)?.let { d ->
+        ru.mqtt.panel.data.ValueFormat.scaled(value, panel.factor)?.let { d ->
             val v = d.toFloat()
             val history = chartMultiHistory.getOrPut("${panel.id}:$seriesIndex") { mutableListOf() }
             history.add(ChartView.TimePoint(time, v))
@@ -369,6 +372,7 @@ class WidgetAdapter(
             WidgetType.MULTI_CHART -> R.layout.item_widget_multichart
             WidgetType.PROGRESS_V -> R.layout.item_widget_progress_v
             WidgetType.PROGRESS_H -> R.layout.item_widget_progress_h
+            WidgetType.PROGRESS_C -> R.layout.item_widget_progress_c
         }
         return BaseHolder(inflater.inflate(layout, parent, false))
     }
@@ -379,12 +383,14 @@ class WidgetAdapter(
 
     inner class BaseHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val tvName: TextView = view.findViewById(R.id.tv_name)
+        private val dragHandle: View? = view.findViewById(R.id.drag_handle)
         private val btnMenu: View? = view.findViewById(R.id.btn_menu)
         private val tvTopic: TextView? = view.findViewById(R.id.tv_topic)
         private val tvValue: TextView? = view.findViewById(R.id.tv_value)
         private val tvTime: TextView? = view.findViewById(R.id.tv_time)
         private val switch: MaterialSwitch? = view.findViewById(R.id.switch_widget)
         private val slider: Slider? = view.findViewById(R.id.slider_widget)
+        private val sliderVerticalView: VerticalSliderView? = view.findViewById(R.id.slider_vertical)
         private val button: MaterialButton? = view.findViewById(R.id.btn_press)
         private val ledDot: View? = view.findViewById(R.id.led_dot)
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
@@ -392,8 +398,22 @@ class WidgetAdapter(
         private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
         private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
         private val horizontalProgress: HorizontalProgressView? = view.findViewById(R.id.progress_horizontal)
+        private val circularProgress: CircularProgressView? = view.findViewById(R.id.progress_circular)
+
+        /** Повтор публикации кнопки: живёт на holder'е, чтобы ребинд/уход
+         *  карточки с экрана гарантированно остановили таймер */
+        private var repeatHandler: android.os.Handler? = null
+        private var repeatRunnable: Runnable? = null
+
+        private fun stopRepeat() {
+            repeatRunnable?.let { repeatHandler?.removeCallbacks(it) }
+            repeatHandler = null
+            repeatRunnable = null
+        }
 
         fun bind(panel: Panel) {
+            // карточка перебиндивается (RecyclerView) — старый повтор не должен жить
+            stopRepeat()
             tvName.text = panel.name
             // подписи топиков скрыты — информация дублируется в заголовке/легенде
             tvTopic?.visibility = View.GONE
@@ -427,6 +447,7 @@ class WidgetAdapter(
                 WidgetType.MULTI_CHART -> bindMultiChart(panel)
                 WidgetType.PROGRESS_V -> bindProgress(null, verticalProgress, null, panel)
                 WidgetType.PROGRESS_H -> bindProgress(null, null, horizontalProgress, panel)
+                WidgetType.PROGRESS_C -> bindProgress(null, null, null, panel, circularProgress)
             }
 
             // Долгое нажатие: в режиме перемещения — старт drag & drop,
@@ -440,11 +461,37 @@ class WidgetAdapter(
             btnMenu?.setOnClickListener { anchor -> showMenu(anchor, panel) }
 
             // В режиме перемещения органы управления карточки неактивны,
-            // чтобы случайный тап не опубликовал команду
+            // чтобы случайный тап не опубликовал команду. Само состояние режима
+            // показано явно: ручка-«ёжик» слева, отступ заголовка, акцентная
+            // обводка и лёгкая прозрачность карточки.
             switch?.isEnabled = !moveMode
             button?.isEnabled = !moveMode
             slider?.isEnabled = !moveMode
-            itemView.alpha = if (moveMode) 0.85f else 1f
+            applyMoveModeChrome()
+        }
+
+        /** Внешние признаки режима перемещения на этой карточке */
+        private fun applyMoveModeChrome() {
+            val ctx = itemView.context
+            dragHandle?.visibility = if (moveMode) View.VISIBLE else View.GONE
+            val pad = if (moveMode) (26 * ctx.resources.displayMetrics.density).toInt() else 0
+            tvName.setPaddingRelative(pad, tvName.paddingTop, tvName.paddingEnd, tvName.paddingBottom)
+            itemView.alpha = if (moveMode) 0.92f else 1f
+            (itemView as? com.google.android.material.card.MaterialCardView)?.let { card ->
+                if (moveMode) {
+                    card.strokeWidth = 2
+                    card.strokeColor = android.graphics.Color.parseColor("#4CAF50")
+                } else {
+                    card.strokeWidth = 0
+                    card.strokeColor = android.graphics.Color.TRANSPARENT
+                }
+            }
+        }
+
+        private fun accentColor(ctx: android.content.Context): Int {
+            val tv = android.util.TypedValue()
+            ctx.theme.resolveAttribute(com.google.android.material.R.attr.colorPrimary, tv, true)
+            return tv.data
         }
 
         /** Меню панели: редактировать / клонировать / удалить */
@@ -470,12 +517,20 @@ class WidgetAdapter(
     /** Значение с единицей измерения: «24.2 °C», «53%» (как в narodmon) */
     private fun withUnit(panel: Panel, value: String): String {
         if (value.isBlank()) return "—"
+        val shown = applyFactorPrecision(panel, value)
         val unit = panel.unitSuffix
-        if (unit.isBlank()) return value
+        if (unit.isBlank()) return shown
         // °C и % пишутся впритык к числу, остальные единицы — через пробел
         val sep = if (unit.startsWith("°") || unit.startsWith("%")) "" else " "
-        return value + sep + unit
+        return shown + sep + unit
     }
+
+    /**
+     * Множитель и десятичная точность (как «Фактор»/«Точность» в IoT MQTT Panel).
+     * Логика — в [ru.mqtt.panel.data.ValueFormat] (покрыта JVM-тестами).
+     */
+    private fun applyFactorPrecision(panel: Panel, value: String): String =
+        ru.mqtt.panel.data.ValueFormat.apply(value, panel.factor, panel.decimals)
 
     private var defaultValueColor: Int? = null
 
@@ -487,7 +542,7 @@ class WidgetAdapter(
     private fun applyDynamicColor(tv: TextView?, panel: Panel) {
         if (tv == null) return
         if (defaultValueColor == null) defaultValueColor = tv.currentTextColor
-        val v = parseNumber(panel.lastValue)
+        val v = ru.mqtt.panel.data.ValueFormat.scaled(panel.lastValue, panel.factor)
         val color = if (v != null) ColorRange.resolve(
             panel.colorMin, panel.colorMid, panel.colorMax,
             panel.sliderMin, panel.sliderMax, v
@@ -495,23 +550,26 @@ class WidgetAdapter(
         tv.setTextColor(color ?: defaultValueColor!!)
     }
 
-        /** Полоса прогресса (горизонтальная или вертикальная): доля значения в
-         *  диапазоне Мин/Макс панели, динамическая раскраска по значению. */
+        /** Полоса прогресса (горизонтальная, вертикальная или круговая): доля
+         *  значения в диапазоне Мин/Макс панели, динамическая раскраска. */
         private fun bindProgress(
             bar: android.widget.ProgressBar?,
             vertical: VerticalProgressView?,
             horizontal: HorizontalProgressView?,
-            panel: Panel
+            panel: Panel,
+            circular: CircularProgressView? = null
         ) {
-            if (bar == null && vertical == null && horizontal == null) return
+            if (bar == null && vertical == null && horizontal == null && circular == null) return
             val min = panel.sliderMin
             val max = if (panel.sliderMax > min) panel.sliderMax else min + 100
-            val v = parseNumber(panel.lastValue)
+            // множитель: полоса считается в тех же единицах, что подпись
+            val v = ru.mqtt.panel.data.ValueFormat.scaled(panel.lastValue, panel.factor)
             bar?.max = 10000
             if (v == null) {
                 bar?.progress = 0
                 vertical?.belowRange = false
                 horizontal?.belowRange = false
+                circular?.belowRange = false
             } else {
                 // ниже Мин — «бубышка» цветом минимума (полная полоса
                 // читалась бы как «много»); выше Макс — полная в цвете
@@ -523,6 +581,8 @@ class WidgetAdapter(
                 vertical?.belowRange = below
                 horizontal?.fraction = f.toFloat()
                 horizontal?.belowRange = below
+                circular?.fraction = f.toFloat()
+                circular?.belowRange = below
                 ColorRange.resolve(
                     panel.colorMin, panel.colorMid, panel.colorMax,
                     min, max, if (below) min else v
@@ -530,6 +590,7 @@ class WidgetAdapter(
                     bar?.progressTintList = android.content.res.ColorStateList.valueOf(c)
                     vertical?.fillColor = c
                     horizontal?.fillColor = c
+                    circular?.fillColor = c
                 }
             }
             tvValue?.text = withUnit(panel, panel.lastValue)
@@ -550,21 +611,89 @@ class WidgetAdapter(
         private fun bindButton(panel: Panel) {
             val btn = button ?: return
             btn.text = panel.buttonPayload.ifBlank { itemView.context.getString(R.string.widget_button) }
-            btn.setOnClickListener {
-                if (panel.topicPublish.isNotBlank()) onPublish(panel, panel.buttonPayload)
+            stopRepeat()
+            btn.setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        if (panel.topicPublish.isNotBlank()) onPublish(panel, panel.buttonPayload)
+                        // повтор публикации, пока кнопка нажата (0 — без повтора)
+                        if (panel.repeatIntervalMs > 0 && panel.topicPublish.isNotBlank()) {
+                            val h = android.os.Handler(android.os.Looper.getMainLooper())
+                            val r = object : Runnable {
+                                override fun run() {
+                                    onPublish(panel, panel.buttonPayload)
+                                    h.postDelayed(this, panel.repeatIntervalMs.toLong())
+                                }
+                            }
+                            repeatHandler = h
+                            repeatRunnable = r
+                            h.postDelayed(r, panel.repeatIntervalMs.toLong())
+                        }
+                        v.isPressed = true
+                    }
+                    android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                        stopRepeat()
+                        v.isPressed = false
+                        // второй payload — только при настоящем отпускании
+                        if (event.actionMasked == android.view.MotionEvent.ACTION_UP &&
+                            panel.releasePayload.isNotBlank() && panel.topicPublish.isNotBlank()
+                        ) {
+                            onPublish(panel, panel.releasePayload)
+                        }
+                    }
+                }
+                true
             }
         }
 
         private fun bindSlider(panel: Panel) {
+            val vertical = panel.sliderVertical
+            // показываем один из двух слайдеров: горизонтальный Material Slider
+            // или собственный вертикальный (см. item_widget_slider.xml)
+            slider?.visibility = if (vertical) View.GONE else View.VISIBLE
+            sliderVerticalView?.visibility = if (vertical) View.VISIBLE else View.GONE
+            if (vertical) bindSliderVertical(panel) else bindSliderHorizontal(panel)
+        }
+
+        /** Вертикальный слайдер — свой View: шаг, диапазон и публикация
+         *  по отпусканию, как у горизонтального Material Slider. */
+        private fun bindSliderVertical(panel: Panel) {
+            val vs = sliderVerticalView ?: return
+            vs.valueFrom = panel.sliderMin.toFloat()
+            vs.valueTo = max(panel.sliderMin.toFloat() + 1f, panel.sliderMax.toFloat())
+            vs.step = panel.sliderStep.toFloat().takeIf { it > 0f } ?: 0f
+            val current = ru.mqtt.panel.data.ValueFormat.scaled(panel.lastValue, panel.factor)
+                ?.toFloat()?.coerceIn(vs.valueFrom, vs.valueTo) ?: vs.valueFrom
+            // значение присваиваем ДО подписки слушателей: программная
+            // установка не должна публиковать команду в брокер
+            vs.onValueChanged = null
+            vs.onValueCommitted = null
+            vs.value = current
+            tvValue?.text = withUnit(panel, formatValue(vs.value))
+            vs.onValueChanged = { v -> tvValue?.text = withUnit(panel, formatValue(v)) }
+            vs.onValueCommitted = { v ->
+                if (panel.topicPublish.isNotBlank()) onPublish(panel, formatValue(v))
+            }
+        }
+
+        private fun bindSliderHorizontal(panel: Panel) {
             val sl = slider ?: return
             sl.valueFrom = panel.sliderMin.toFloat()
             sl.valueTo = max(panel.sliderMin.toFloat() + 1f, panel.sliderMax.toFloat())
-            sl.stepSize = 0f
-            val current = parseNumber(panel.lastValue)?.toFloat()?.coerceIn(sl.valueFrom, sl.valueTo) ?: sl.valueFrom
+            // шаг слайдера: 0 — непрерывный (как было до 0.2.79);
+            // Slider требует stepSize > 0 либо ровно 0
+            val step = panel.sliderStep.toFloat()
+            sl.stepSize = if (step > 0f) step else 0f
+            val current = ru.mqtt.panel.data.ValueFormat.scaled(panel.lastValue, panel.factor)
+                ?.toFloat()?.coerceIn(sl.valueFrom, sl.valueTo) ?: sl.valueFrom
             sl.clearOnChangeListeners()
             sl.clearOnSliderTouchListeners()
-            sl.value = current
-            tvValue?.text = withUnit(panel, formatValue(current))
+            // значение должно попадать в сетку шага, иначе Slider кинет исключение
+            sl.value = if (step > 0f) {
+                val steps = ((current - sl.valueFrom) / step).roundToInt()
+                (sl.valueFrom + steps * step).coerceIn(sl.valueFrom, sl.valueTo)
+            } else current
+            tvValue?.text = withUnit(panel, formatValue(sl.value))
             var userChanged = false
             sl.addOnChangeListener { _, value, fromUser ->
                 tvValue?.text = withUnit(panel, formatValue(value))
@@ -623,7 +752,7 @@ class WidgetAdapter(
             cv.clear()
             history?.forEach { cv.addTimePoint(it.t, it.v) }
             if (history.isNullOrEmpty()) {
-                parseNumber(panel.lastValue)?.let { d ->
+                ru.mqtt.panel.data.ValueFormat.scaled(panel.lastValue, panel.factor)?.let { d ->
                     cv.addTimePoint(max(panel.lastTime, 0L).takeIf { it > 0 } ?: System.currentTimeMillis(), d.toFloat())
                 }
             }
@@ -675,12 +804,15 @@ class WidgetAdapter(
                 labels.forEach { labelRes ->
                     val chip = android.widget.TextView(row.context).apply {
                         text = row.context.getString(labelRes)
-                        textSize = 11f
+                        // 11sp было мелко на телефоне; 13sp остаётся читаемым,
+                        // а в тесной карточке 1/3 ширины подключается
+                        // короткая форма подписей (1ч/1с/1н/1м/1г)
+                        textSize = 13f
                         maxLines = 1
                         gravity = android.view.Gravity.CENTER
-                        // Крупнее прежних 10sp/3dp: по такому чипу легко попасть
-                        // пальцем, переключение периода не «съедается» тапом мимо.
-                        setPadding(0, (7 * d).toInt(), 0, (7 * d).toInt())
+                        // Компактнее по вертикали (5dp): чипы не должны съедать
+                        // высоту карточки графика в плотной сетке демо
+                        setPadding(0, (5 * d).toInt(), 0, (5 * d).toInt())
                         background = android.graphics.drawable.GradientDrawable().apply {
                             cornerRadius = 14 * d
                             // плашка чуть плотнее — контраст на светлой теме
@@ -718,16 +850,29 @@ class WidgetAdapter(
             // Слушатель — на КАЖДОМ бинде: ViewHolder рециклится, и чип,
             // созданный один раз, навсегда запомнил бы ПЕРВУЮ панель — тапы
             // меняли период чужой карточки, а текущая не реагировала.
-            // Цвет текста чипов по теме: выбранный — акцентный (primary),
-            // невыбранный — вторичный текст темы (контраст на обеих темах)
-            val chipOn = row.context.getColor(R.color.md_theme_primary)
-            val chipOff =
-                if (ru.mqtt.panel.ui.ThemePrefs.isDark(row.context)) 0xFFB0BEC5.toInt()
-                else 0xFF54634F.toInt()
+            // Цвета чипов по теме. Активный — сплошная заливка акцентом:
+            // светлая тема — тёмно-зелёная плашка с белым текстом, тёмная —
+            // светло-зелёная с тёмным. Раньше активный отличался только
+            // жирностью текста на одинаковых бледных плашках, и на карточке
+            // его было почти не найти.
+            val dark = ru.mqtt.panel.ui.ThemePrefs.isDark(row.context)
+            val chipOnBg = if (dark) 0xFF9DD697.toInt() else 0xFF386A36.toInt()
+            val chipOnFg = if (dark) 0xFF003900.toInt() else 0xFFFFFFFF.toInt()
+            val chipOffBg = if (dark) 0x40BBCBB3 else 0x2E54634F
+            val chipOffFg = if (dark) 0xFFC3D1BE.toInt() else 0xFF3A4A36.toInt()
             fun applyChip(c: android.widget.TextView, on: Boolean) {
-                c.alpha = if (on) 1f else 0.55f
+                c.alpha = 1f
                 c.setTypeface(c.typeface, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-                c.setTextColor(if (on) chipOn else chipOff)
+                c.setTextColor(if (on) chipOnFg else chipOffFg)
+                val bg = c.background
+                if (bg is android.graphics.drawable.GradientDrawable) {
+                    bg.setColor(if (on) chipOnBg else chipOffBg)
+                } else {
+                    c.background = android.graphics.drawable.GradientDrawable().apply {
+                        cornerRadius = 14 * d
+                        setColor(if (on) chipOnBg else chipOffBg)
+                    }
+                }
             }
             for (i in 0 until row.childCount) {
                 val chip = row.getChildAt(i) as android.widget.TextView

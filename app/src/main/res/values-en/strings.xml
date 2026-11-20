@@ -68,6 +68,12 @@
     <string name="widget_default_on">ON value</string>
     <string name="widget_default_off">OFF value</string>
     <string name="widget_payload">Button text</string>
+    <string name="widget_step">Step</string>
+    <string name="widget_slider_vertical">Vertical slider</string>
+    <string name="widget_release_payload">Payload on release</string>
+    <string name="widget_repeat_interval">Repeat, ms (0 - no repeat)</string>
+    <string name="field_factor">Factor</string>
+    <string name="field_decimals">Decimal places</string>
     <string name="widget_points">Chart points</string>
     <string name="widget_color">Color</string>
     <string name="widget_menu">Panel menu</string>
@@ -83,6 +89,7 @@
     <string name="field_unit_suffix">Unit suffix (°C, %, dB)</string>
     <string name="move_mode">Move</string>
     <string name="move_mode_hint">Move mode: long-press a card and drag it. Tap the check mark to finish.</string>
+    <string name="drag_handle">Drag</string>
     <string name="field_topic_pub">Publish topic</string>
     <string name="field_qos">QoS</string>
     <string name="field_retained">Retained</string>

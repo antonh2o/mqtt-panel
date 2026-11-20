@@ -20,9 +20,31 @@ class DemoConfigTest {
         assertTrue(conn.demo)
         assertTrue(!conn.narodmon)
         assertEquals(DemoConfig.DEMO_HOST, conn.host)
-        assertTrue(config.panels.size >= 6)
+        assertTrue(config.panels.size >= 10)
         // все панели принадлежат одному подключению (fixIds переприсвоит id)
         assertTrue(config.panels.all { it.connectionId == 1L })
+    }
+
+    /** Демо показывает ВСЕ типы виджетов — иначе скриншоты README неполные */
+    @Test
+    fun `build - присутствуют все типы виджетов`() {
+        val config = DemoConfig.build("abcd1234")
+        val types = config.panels.map { it.type }.toSet()
+        assertEquals(WidgetType.entries.toSet(), types)
+    }
+
+    /** Плотная сетка: не больше трёх карточек в ряду, графики — по половине */
+    @Test
+    fun `build - плотная сетка карточек`() {
+        val config = DemoConfig.build("abcd1234")
+        assertTrue(config.panels.all { it.span in 2..6 })
+        val charts = config.panels.filter {
+            it.type == WidgetType.CHART || it.type == WidgetType.MULTI_CHART
+        }
+        assertEquals(2, charts.size)
+        assertTrue(charts.all { it.span == 3 })
+        // все не-графики — треть ширины (3 карточки в ряд)
+        assertTrue(config.panels.filter { it !in charts }.all { it.span == 2 })
     }
 
     @Test
@@ -39,6 +61,15 @@ class DemoConfigTest {
         // у свитча publish = subscribe
         val sw = config.panels.first { it.type == WidgetType.SWITCH }
         assertEquals(sw.topicSubscribe, sw.topicPublish)
+    }
+
+    /** Начальные значения органов управления публикуются retained */
+    @Test
+    fun `initialControlValues - покрывают свитч, слайдер и кнопку`() {
+        val values = DemoConfig.initialControlValues().toMap()
+        assertEquals("OFF", values[DemoConfig.S_LIGHT])
+        assertEquals("40", values[DemoConfig.S_BRIGHT])
+        assertEquals("IDLE", values[DemoConfig.S_BELL])
     }
 
     @Test
@@ -62,11 +93,15 @@ class DemoConfigTest {
             val h = tick.getValue(DemoConfig.S_HOME_H).toDouble()
             val co2 = tick.getValue(DemoConfig.S_CO2).toDouble()
             val street = tick.getValue(DemoConfig.S_STREET_T).toDouble()
+            val battery = tick.getValue(DemoConfig.S_BATTERY).toDouble()
             assertTrue("homeT=$t", t in 19.0..24.5)
             assertTrue("homeH=$h", h in 34.0..61.0)
             assertTrue("co2=$co2", co2 in 449.0..1001.0)
             assertTrue("street=$street", street in -3.5..9.5)
+            assertTrue("battery=$battery", battery in 11.0..101.0)
             assertEquals("1", tick.getValue(DemoConfig.S_ONLINE))
+            // текстовая панель получает непустое значение
+            assertTrue(tick.getValue(DemoConfig.S_STATUS).isNotBlank())
             // числа без запятой-разделителя и суффиксов — ValueParse их съест
             prev = tick
         }

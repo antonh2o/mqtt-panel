@@ -213,12 +213,60 @@
 
         </HorizontalScrollView>
 
+        <!-- Множитель и десятичная точность: значение с датчика × фактор,
+             затем округление до N знаков (как «Фактор»/«Точность» в IoT MQTT Panel) -->
+        <LinearLayout
+            android:id="@+id/layout_factor_precision"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:hint="@string/field_factor">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_factor"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:hint="@string/field_decimals">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_decimals"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+        </LinearLayout>
+
         <com.google.android.material.checkbox.MaterialCheckBox
             android:id="@+id/cb_show_time"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:text="@string/field_show_time" />
+
+        <!-- Retain публикуемых сообщений (у топиков подписки смысла не имеет) -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/cb_retained"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/field_retained" />
 
         <!-- Динамический цвет значения: мин → средний → макс по диапазону Мин/Макс -->
         <LinearLayout
@@ -401,22 +449,88 @@
 
         </LinearLayout>
 
+        <!-- Шаг и ориентация — только у слайдера -->
+        <LinearLayout
+            android:id="@+id/layout_slider_opts"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/widget_step">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_step"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cb_slider_vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/widget_slider_vertical" />
+
+        </LinearLayout>
+
         <!-- Параметры для BUTTON -->
-        <com.google.android.material.textfield.TextInputLayout
+        <LinearLayout
             android:id="@+id/layout_button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="@string/widget_payload"
+            android:orientation="vertical"
             android:visibility="gone">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/et_payload"
+            <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text" />
+                android:layout_marginTop="8dp"
+                android:hint="@string/widget_payload">
 
-        </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_payload"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/widget_release_payload">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_release_payload"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/widget_repeat_interval">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_repeat_interval"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number" />
+
+            </com.google.android.material.textfield.TextInputLayout>
+
+        </LinearLayout>
 
         <!-- Параметры для CHART -->
         <LinearLayout

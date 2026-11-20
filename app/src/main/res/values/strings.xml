@@ -69,6 +69,12 @@
     <string name="widget_default_on">Знач. вкл</string>
     <string name="widget_default_off">Знач. выкл</string>
     <string name="widget_payload">Текст кнопки</string>
+    <string name="widget_step">Шаг</string>
+    <string name="widget_slider_vertical">Вертикальный слайдер</string>
+    <string name="widget_release_payload">Payload при отпускании</string>
+    <string name="widget_repeat_interval">Повтор, мс (0 — без повтора)</string>
+    <string name="field_factor">Множитель</string>
+    <string name="field_decimals">Знаков после запятой</string>
     <string name="widget_points">Точки графика</string>
     <string name="widget_color">Цвет</string>
     <string name="widget_menu">Меню панели</string>
@@ -84,6 +90,7 @@
     <string name="field_unit_suffix">Единицы измерения (°C, %, dB)</string>
     <string name="move_mode">Перемещение</string>
     <string name="move_mode_hint">Режим перемещения: зажмите карточку и перетащите. Нажмите галочку, чтобы завершить.</string>
+    <string name="drag_handle">Перетащить</string>
     <string name="field_topic_pub">Тема публикации</string>
     <string name="field_qos">QoS</string>
     <string name="field_retained">Retained</string>

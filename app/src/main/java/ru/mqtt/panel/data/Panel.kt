@@ -38,8 +38,16 @@ data class Panel(
     // для SLIDER
     var sliderMin: Double = 0.0,
     var sliderMax: Double = 100.0,
+    // шаг слайдера (0 = непрерывный, как было до 0.2.79)
+    var sliderStep: Double = 0.0,
+    // вертикальная ориентация слайдера (по умолчанию горизонтальный)
+    var sliderVertical: Boolean = false,
     // для BUTTON
     var buttonPayload: String = "ON",
+    // второй payload, публикуемый при отпускании кнопки (пусто — не публикуется)
+    var releasePayload: String = "",
+    // повтор публикации payload каждые N мс, пока кнопка нажата (0 — без повтора)
+    var repeatIntervalMs: Int = 0,
     // для CHART
     var chartPoints: Int = 50,
     var chartColor: String = "#4CAF50",
@@ -55,6 +63,11 @@ data class Panel(
     var span: Int = 2,
     // единица измерения/суффикс к значению: "°C", "%", " dB" (как в narodmon)
     var unitSuffix: String = "",
+    // множитель значения перед показом (1 = не применять, как «Фактор»
+    // в IoT MQTT Panel: датчик отдаёт 0.1, множитель 10 → показываем 1)
+    var factor: Double = 1.0,
+    // десятичная точность показа (null — как пришло, без округления)
+    var decimals: Int? = null,
     // источник данных: "mqtt" (по умолчанию) или "narodmon". У narodmon-панелей
     // topicSubscribe хранит ID датчика строкой — маршрутизация значений и графики
     // переиспользуются без изменений

@@ -145,6 +145,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         menuInflater.inflate(R.menu.menu_theme, menu)
+        MenuIcons.forceShowIcons(menu)
         updateThemeIcons(menu)
         return true
     }

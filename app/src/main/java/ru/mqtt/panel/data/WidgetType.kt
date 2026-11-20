@@ -13,7 +13,8 @@ enum class WidgetType(val label: String) {
     CHART("График"),
     MULTI_CHART("Мультиграфик"),
     PROGRESS_V("Прогресс верт."),
-    PROGRESS_H("Прогресс гориз.");
+    PROGRESS_H("Прогресс гориз."),
+    PROGRESS_C("Прогресс круг");
 
     companion object {
         fun fromLabel(label: String): WidgetType =

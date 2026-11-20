@@ -100,6 +100,30 @@ class MqttService : Service() {
         @Volatile
         private var connectedAtMap: Map<Long, Long> = emptyMap()
 
+        /**
+         * Последние сообщения каждого подключения (connId -> topic -> value/time).
+         * Подписка сервиса живёт с момента connectService, а приёмник дашборда
+         * регистрируется только в onResume: retained-сообщения (wanip публикуется
+         * раз в минуты) приходили ДО приёмника и терялись — карточка пустовала
+         * до следующего сообщения. Дашборд при регистрации забирает кэш через
+         * replayLast().
+         */
+        private val lastMessages = java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.ConcurrentHashMap<String, Array<Any>>>()
+
+        private fun rememberMessage(connectionId: Long, topic: String, payload: String, time: Long) {
+            if (topic.isBlank()) return
+            lastMessages.getOrPut(connectionId) { java.util.concurrent.ConcurrentHashMap() }
+                .put(topic, arrayOf(payload, time))
+        }
+
+        /** Разобрать кэш последних сообщений подключения (после регистрации приёмника) */
+        fun replayLast(connectionId: Long): List<Triple<String, String, Long>> =
+            lastMessages[connectionId]?.mapNotNull { (topic, v) ->
+                @Suppress("UNCHECKED_CAST")
+                val arr = v as Array<Any>
+                Triple(topic, arr[0] as String, arr[1] as Long)
+            } ?: emptyList()
+
         fun stateOf(connectionId: Long): ConnectionState? = states[connectionId]
 
         fun uptimeSecondsOf(connectionId: Long): Long {
@@ -376,10 +400,20 @@ class MqttService : Service() {
         }
         stopDemoPublisher(entry)
         val sensors = ru.mqtt.panel.data.DemoConfig.DemoSensors()
+        // Начальные значения органов управления (свитч/слайдер/кнопка)
+        // публикуются в ПЕРВОМ успешном тике — retained, чтобы карточки не
+        // выглядели пустыми до первого действия пользователя. Флаг сбрасывается
+        // при каждом (пере)запуске публикатора.
+        val initialPending = java.util.concurrent.atomic.AtomicBoolean(true)
         entry.demoFuture = demoExecutor.scheduleWithFixedDelay({
             val mqttClient = entry.client ?: return@scheduleWithFixedDelay
             if (!mqttClient.isConnected) return@scheduleWithFixedDelay
             try {
+                if (initialPending.compareAndSet(true, false)) {
+                    ru.mqtt.panel.data.DemoConfig.initialControlValues().forEach { (suffix, payload) ->
+                        publish(entry.conn.id, "$prefix/$suffix", payload, 0, true)
+                    }
+                }
                 sensors.tick().forEach { (suffix, payload) ->
                     publish(entry.conn.id, "$prefix/$suffix", payload, 0, false)
                 }
@@ -486,10 +520,13 @@ class MqttService : Service() {
         val payloadBytes = message?.payload ?: ByteArray(0)
         // Реестр для сканера топиков пишется всегда
         topics.record(topic ?: "", payloadBytes, connectionId = entry.conn.id)
+        val time = System.currentTimeMillis()
+        // кэш для дашборда: он мог ещё не зарегистрировать приёмник (см. lastMessages)
+        rememberMessage(entry.conn.id, topic ?: "", String(payloadBytes), time)
         val intent = Intent(BROADCAST_MESSAGE).apply {
             putExtra(EXTRA_MESSAGE_TOPIC, topic ?: "")
             putExtra(EXTRA_MESSAGE_PAYLOAD, String(payloadBytes))
-            putExtra(EXTRA_MESSAGE_TIME, System.currentTimeMillis())
+            putExtra(EXTRA_MESSAGE_TIME, time)
             putExtra(EXTRA_CONNECTION_ID, entry.conn.id)
         }
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)

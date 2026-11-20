@@ -12,6 +12,10 @@ import java.util.UUID
  * `mqttpanel/d<token>/...` (token на установку) и сразу их показывает —
  * демо не мешает другим установкам и не требует ключей.
  *
+ * Демо показывает ВСЕ типы виджетов (11) плотной сеткой: ряды по три
+ * карточки 1/3 ширины и ряд с двумя графиками по половине ширины — весь
+ * дашборд умещается на одном экране телефона.
+ *
  * Народмон в демо не входит: API платформы требует личный API-ключ.
  */
 object DemoConfig {
@@ -25,9 +29,15 @@ object DemoConfig {
     const val S_HOME_H = "home/humidity"
     const val S_CO2 = "home/co2"
     const val S_STREET_T = "street/temperature"
+    const val S_BATTERY = "device/battery"
+    const val S_STATUS = "device/status"
     const val S_ONLINE = "system/online"
     /** свитч: публикует сам пользователь, демо-генератор его не трогает */
     const val S_LIGHT = "home/light"
+    /** слайдер: публикует сам пользователь */
+    const val S_BRIGHT = "home/brightness"
+    /** кнопка: публикует сам пользователь */
+    const val S_BELL = "home/bell"
 
     fun newToken(): String = UUID.randomUUID().toString().take(8)
     fun prefix(token: String): String = "$ROOT/d$token"
@@ -40,6 +50,17 @@ object DemoConfig {
         ) return "${parts[0]}/${parts[1]}"
         return null
     }
+
+    /**
+     * Начальные значения органов управления (публикуются один раз при старте
+     * демо, retained): иначе свитч/слайдер/кнопка до первого действия
+     * пользователя выглядели бы пустыми.
+     */
+    fun initialControlValues(): List<Pair<String, String>> = listOf(
+        S_LIGHT to "OFF",
+        S_BRIGHT to "40",
+        S_BELL to "IDLE"
+    )
 
     fun build(token: String = newToken()): AppConfig {
         val p = prefix(token)
@@ -60,34 +81,56 @@ object DemoConfig {
             topicPublish = topic,
         ).apply(configure)
 
+        // Плотная сетка: три карточки 1/3 ширины в ряду, графики — по половине.
+        // Порядок = порядок появления на экране, все 11 типов виджетов.
         val panels = listOf(
+            // --- ряд 1: значение + горизонтальный прогресс + вертикальный прогресс
             panel("🌡 Дома", WidgetType.VALUE, "$p/$S_HOME_T") {
                 unitSuffix = " °C"; span = 2
                 sliderMin = 20.0; sliderMax = 28.0
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
             },
-            panel("🌡 Улица", WidgetType.VALUE, "$p/$S_STREET_T") {
-                unitSuffix = " °C"; span = 2
-                sliderMin = -5.0; sliderMax = 10.0
-                colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
-            },
             panel("💧 Влажность", WidgetType.PROGRESS_H, "$p/$S_HOME_H") {
                 unitSuffix = " %"; span = 2
                 sliderMin = 0.0; sliderMax = 100.0
+                colorMin = "#FFB74D"; colorMid = "#4FC3F7"; colorMax = "#29B6F6"
             },
-            panel("🌫 CO₂", WidgetType.VALUE, "$p/$S_CO2") {
+            panel("🌫 CO₂", WidgetType.PROGRESS_V, "$p/$S_CO2") {
                 unitSuffix = " ppm"; span = 2
                 sliderMin = 400.0; sliderMax = 1000.0
                 colorMin = "#66BB6A"; colorMid = "#FFA726"; colorMax = "#EF5350"
             },
+
+            // --- ряд 2: круговой прогресс + переключатель + кнопка
+            panel("🔋 Батарея", WidgetType.PROGRESS_C, "$p/$S_BATTERY") {
+                unitSuffix = " %"; span = 2
+                sliderMin = 0.0; sliderMax = 100.0
+                colorMin = "#EF5350"; colorMid = "#FFA726"; colorMax = "#66BB6A"
+            },
             panel("💡 Свет", WidgetType.SWITCH, "$p/$S_LIGHT") {
                 span = 2; onPayload = "ON"; offPayload = "OFF"
+            },
+            panel("🔔 Звонок", WidgetType.BUTTON, "$p/$S_BELL") {
+                span = 2; buttonPayload = "RING"
+            },
+
+            // --- ряд 3: слайдер + светодиод + текст
+            panel("🎚 Яркость", WidgetType.SLIDER, "$p/$S_BRIGHT") {
+                span = 2; unitSuffix = " %"
+                sliderMin = 0.0; sliderMax = 100.0
+                // шаг 5 — демо новых настроек слайдера (шаг + вертикальность)
+                sliderStep = 5.0
             },
             panel("🛡 Брокер", WidgetType.LED, "$p/$S_ONLINE") {
                 span = 2
             },
-            panel("🌡 Дома — график", WidgetType.CHART, "$p/$S_HOME_T") {
-                span = 6; chartPoints = 120
+            panel("📟 Статус", WidgetType.TEXT, "$p/$S_STATUS") {
+                span = 2
+            },
+
+            // --- ряд 4: одиночный график + мультиграфик (по половине ширины)
+            panel("🌡 Климат", WidgetType.CHART, "$p/$S_HOME_T") {
+                span = 3; chartPoints = 120
                 sliderMin = 20.0; sliderMax = 28.0
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
             },
@@ -96,7 +139,7 @@ object DemoConfig {
                 name = "🌡 Дома и улица",
                 type = WidgetType.MULTI_CHART,
                 chartPoints = 120,
-                span = 6,
+                span = 3,
                 unitSuffix = " °C",
                 series = listOf(
                     ChartSeries("$p/$S_HOME_T", "#43A047", "Дома"),
@@ -116,6 +159,7 @@ object DemoConfig {
         private var homeH = 47.0
         private var co2 = 620.0
         private var streetT = 3.8
+        private var battery = 86.0
 
         /** один шаг генератора: суффикс темы → payload */
         fun tick(): List<Pair<String, String>> {
@@ -123,14 +167,21 @@ object DemoConfig {
             homeH = (homeH + next(-0.8, 0.8)).coerceIn(35.0, 60.0)
             co2 = (co2 + next(-30.0, 30.0)).coerceIn(450.0, 1000.0)
             streetT = (streetT + next(-0.2, 0.2)).coerceIn(-3.0, 9.0)
+            // батарейка медленно садится: раз в тик на доли процента
+            battery = (battery - next(0.0, 0.08)).coerceIn(12.0, 100.0)
             return listOf(
                 S_HOME_T to f1(homeT),
                 S_HOME_H to f1(homeH),
                 S_CO2 to f0(co2),
                 S_STREET_T to f1(streetT),
+                S_BATTERY to f0(battery),
+                S_STATUS to status(),
                 S_ONLINE to "1"
             )
         }
+
+        /** Строка состояния устройства — демо типа TEXT */
+        private fun status(): String = "демо · онлайн"
 
         private fun next(from: Double, to: Double) = from + (to - from) * rng.nextDouble()
         private fun f1(v: Double) = String.format(Locale.US, "%.1f", v)

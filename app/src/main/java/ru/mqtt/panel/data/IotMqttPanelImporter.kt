@@ -238,10 +238,13 @@ object IotMqttPanelImporter {
 
         val widgetType = when (typeStr) {
             // прогресс с ориентацией: vertical-meter — всегда вертикальный,
-            // progress — по полю orientation (vertical/horizontal)
+            // progress — по полю orientation (vertical/horizontal/circular)
             "vertical-meter" -> WidgetType.PROGRESS_V
-            "progress" -> if ((po.get("orientation")?.asString ?: "")
-                .equals("vertical", ignoreCase = true)) WidgetType.PROGRESS_V else WidgetType.PROGRESS_H
+            "progress" -> when ((po.get("orientation")?.asString ?: "").lowercase()) {
+                "vertical" -> WidgetType.PROGRESS_V
+                "circular" -> WidgetType.PROGRESS_C
+                else -> WidgetType.PROGRESS_H
+            }
             else -> mapPanelType(typeStr)
         }
         if (widgetType == null) {
@@ -259,6 +262,16 @@ object IotMqttPanelImporter {
             sliderMin = po.get("payloadMin")?.asDouble ?: 0.0,
             sliderMax = po.get("payloadMax")?.asDouble ?: 100.0,
             chartPoints = po.get("maxPersistence")?.asInt ?: 50,
+            // «Фактор» и «Точность»: пустые строки в экспорте — не заданы
+            factor = po.get("messageFactor")?.asDouble?.takeIf { it != 0.0 } ?: 1.0,
+            decimals = po.get("decimalPrecision")?.let { el ->
+                if (el.isJsonPrimitive) el.asString.toIntOrNull() else null
+            }?.coerceIn(0, 6),
+            // retain — общий флаг публикации у большинства типов
+            retained = po.get("retain")?.asBoolean ?: false,
+            sliderStep = po.get("step")?.asDouble?.coerceAtLeast(0.0) ?: 0.0,
+            sliderVertical = (po.get("orientation")?.asString ?: "")
+                .equals("vertical", ignoreCase = true),
             id = ++pid
         )
 
@@ -269,6 +282,21 @@ object IotMqttPanelImporter {
                 panel.offPayload = po.get("payloadOff")?.asString ?: "0"
                 panel.retained = po.get("retain")?.asBoolean ?: false
                 details.add("      switch: on='${panel.onPayload}' off='${panel.offPayload}' retained=${panel.retained}")
+            }
+            "button" -> {
+                panel.buttonPayload = po.get("payload")?.asString ?: "ON"
+                // второй payload на отпускании + повтор, пока кнопка нажата
+                panel.releasePayload = po.get("payloadOnRelease")?.asString ?: ""
+                panel.repeatIntervalMs = po.get("repeatInterval")?.asInt?.coerceAtLeast(0) ?: 0
+                details.add(
+                    "      button: payload='${panel.buttonPayload}' release='${panel.releasePayload}' repeat=${panel.repeatIntervalMs}ms"
+                )
+            }
+            "slider" -> {
+                panel.sliderStep = po.get("step")?.asDouble?.coerceAtLeast(0.0) ?: 0.0
+                panel.sliderVertical = (po.get("orientation")?.asString ?: "")
+                    .equals("vertical", ignoreCase = true)
+                details.add("      slider: step=${panel.sliderStep} vertical=${panel.sliderVertical}")
             }
             "vertical-meter", "progress" -> {
                 val unit = po.get("unit")?.asString
