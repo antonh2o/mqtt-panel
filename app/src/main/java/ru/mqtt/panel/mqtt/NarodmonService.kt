@@ -219,7 +219,21 @@ class NarodmonService : Service() {
 
     /** Разослать значения датчиков: общий код первого опроса и повтора после релога */
     private fun deliver(conn: MqttConnection, sensors: List<NarodmonApi.NmSensor>) {
-        connectedAt = System.currentTimeMillis()
+        // Пустой ответ — НЕ «подключено»: платформа могла отдать пустой список
+        // (устройства offline/ошибка разбора), и зелёный статус с таймером
+        // маскировал бы застывшие значения. Оставляем CONNECTING и пишем причину
+        if (sensors.isEmpty()) {
+            ImportLog.write(applicationContext,
+                "NARODMON poll: платформа вернула 0 датчиков — значения не обновлены")
+            connectionState = ConnectionState.CONNECTING
+            broadcastStatus(ConnectionState.CONNECTING)
+            return
+        }
+        // Таймер «в сети» — от первого успешного опроса, а не от каждого:
+        // иначе он вечно показывает «1 мин N с» и врёт про длительность сессии
+        if (connectedAt == 0L || connectionState != ConnectionState.CONNECTED) {
+            connectedAt = System.currentTimeMillis()
+        }
         connectionState = ConnectionState.CONNECTED
         backoff = 1
         broadcastStatus(ConnectionState.CONNECTED)
@@ -276,6 +290,11 @@ class NarodmonService : Service() {
 
     override fun onDestroy() {
         serviceAlive = false
+        // Сервис умер — статус не должен остаться «Подключено»: дашборд
+        // показывал зелёный ✓ с застывшим таймером, хотя опроса уже не было
+        connectionState = ConnectionState.DISCONNECTED
+        connectedAt = 0L
+        broadcastStatus(ConnectionState.DISCONNECTED)
         handler.removeCallbacks(pollLoop)
         scope.cancel()
         super.onDestroy()

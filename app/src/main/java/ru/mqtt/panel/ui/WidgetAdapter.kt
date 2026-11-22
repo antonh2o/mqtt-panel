@@ -53,6 +53,10 @@ class WidgetAdapter(
 
     /** Режим перемещения: долгое нажатие начинает перетаскивание, виджеты неактивны */
     var moveMode = false
+
+    /** Режим блокировки: только данные — без меню карточек, ручек и времени.
+     *  Защищает раскладку от случайных правок (перемещение выключено) */
+    var locked = false
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     private val dateTimeFormat = SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault())
     /** История значений для графиков: panelId → точки (время, значение) */
@@ -78,11 +82,16 @@ class WidgetAdapter(
     /** Перезагрузка состава панелей с сохранением уже полученных значений */
     fun submitKeepingValues(list: List<Panel>) {
         val values = items.associate { it.id to it.lastValue }
-        submit(list.map { it.copy(lastValue = values[it.id] ?: "") })
+        val times = items.associate { it.id to it.lastTime }
+        submit(list.map {
+            it.copy(lastValue = values[it.id] ?: "", lastTime = times[it.id] ?: it.lastTime)
+        })
     }
 
-    /** Загрузка панелей другого подключения — старые значения не относятся к ним */
-    fun submitFresh(list: List<Panel>) = submit(list.map { it.copy(lastValue = "") })
+    /** Загрузка панелей другого подключения — старые значения не относятся к ним.
+     *  lastTime тоже чистим: иначе сохранённое в конфиге «будущее» время
+     *  заблокировало бы приём свежих сообщений (защита от откатов в applyValue) */
+    fun submitFresh(list: List<Panel>) = submit(list.map { it.copy(lastValue = "", lastTime = 0) })
 
     /** Перемещение карточки в режиме перемещения (drag & drop) */
     fun moveItem(from: Int, to: Int) {
@@ -135,6 +144,11 @@ class WidgetAdapter(
         val value = if (panel.jsonPath.isNotBlank()) {
             extractJsonPath(raw, panel.jsonPath) ?: return
         } else raw
+        // Устаревшее сообщение не должно перетирать свежее: replay сервиса и
+        // runtime-кэш приходят пачкой и раньше откатывали значения назад
+        // (карточка показывала данные двухдневной давности при живом статусе).
+        // Допускаем равное время — у MQTT время приёма может совпасть.
+        if (panel.lastTime > 0 && time < panel.lastTime) return
         panel.lastValue = value
         if (time > panel.lastTime) panel.lastTime = time
         if (panel.type == WidgetType.CHART) {
@@ -161,6 +175,12 @@ class WidgetAdapter(
         val value = if (path.isNotEmpty()) {
             extractJsonPath(raw, path) ?: return
         } else raw
+        // У серии свой хронометраж: общий panel.lastTime заблокировал бы
+        // вторую линию после прихода свежей точки первой. Сравниваем с
+        // последней точкой ИМЕННО этой серии (replay не откатывает график)
+        val seriesKey = "${panel.id}:$seriesIndex"
+        val lastT = chartMultiHistory[seriesKey]?.lastOrNull()?.t ?: 0L
+        if (lastT > 0 && time < lastT) return
         panel.lastValue = value
         multiLastSeries[panel.id] = seriesIndex
         if (time > panel.lastTime) panel.lastTime = time
@@ -319,7 +339,9 @@ class WidgetAdapter(
         if (cached.isEmpty()) return
         items.forEach { panel ->
             cached["${panel.id}"]?.let { rt ->
-                if (rt.last.isNotBlank()) panel.lastValue = rt.last
+                // Кэш — только заполнение пустого: если значение уже пришло
+                // живым сообщением, оно свежее и перетирать его нельзя
+                if (panel.lastValue.isBlank() && rt.last.isNotBlank()) panel.lastValue = rt.last
                 if (rt.time > panel.lastTime) panel.lastTime = rt.time
                 if (rt.history.isNotEmpty()) {
                     chartHistory[panel.id] = rt.history
@@ -420,9 +442,10 @@ class WidgetAdapter(
             tvTopic?.text = panel.topicSubscribe.ifBlank {
                 panel.topicPublish.ifBlank { itemView.context.getString(R.string.no_topic) }
             }
-            // время последней передачи данных (если включено и данные приходили)
+            // время последней передачи данных (если включено и данные приходили);
+            // в режиме блокировки — только данные, время скрыто
             if (tvTime != null) {
-                if (panel.showTime != false && panel.lastTime > 0) {
+                if (!locked && panel.showTime != false && panel.lastTime > 0) {
                     tvTime.visibility = View.VISIBLE
                     tvTime.text = formatTime(panel.lastTime)
                 } else {
@@ -451,13 +474,17 @@ class WidgetAdapter(
             }
 
             // Долгое нажатие: в режиме перемещения — старт drag & drop,
-            // иначе — контекстное меню панели (редактировать/удалить)
+            // иначе — контекстное меню панели (редактировать/удалить).
+            // В режиме блокировки меню недоступно: раскладка защищена от правок
             itemView.setOnLongClickListener {
+                if (locked) return@setOnLongClickListener false
                 if (moveMode) onDragStart(this) else showMenu(it, panel)
                 true
             }
 
-            // Троеточие в углу плашки — меню редактировать/удалить
+            // Троеточие в углу плашки — меню редактировать/удалить.
+            // В режиме блокировки кнопки нет вовсе — карточка отдаёт место данным
+            btnMenu?.visibility = if (locked) View.GONE else View.VISIBLE
             btnMenu?.setOnClickListener { anchor -> showMenu(anchor, panel) }
 
             // В режиме перемещения органы управления карточки неактивны,
@@ -921,10 +948,9 @@ class WidgetAdapter(
             panel.series.indices.forEach { i ->
                 chartMultiHistory["${panel.id}:$i"]?.forEach { p -> cv.addMultiTimePoint(i, p.t, p.v) }
             }
-            // Верх карточки: значения ВСЕХ серий с подписями — подпись обычным
-            // цветом, значение жирным цветом своей серии (одна строка, автосайз
-            // ужмёт, длинные списки режутся многоточием)
-            bindMultiValuesRow(panel)
+            // Значения серий показываются ТОЛЬКО в легенде под графиком —
+            // верхняя строка дублировала их и съедала место у кривых
+            tvValue?.visibility = View.GONE
             // Тема карточки не одна — список тем виден в легенде
             tvTopic?.visibility = View.GONE
             buildLegend(panel)
@@ -938,87 +964,63 @@ class WidgetAdapter(
             return if (s.isEmpty() || s.endsWith(".")) s + "0" else s
         }
 
-        /** Верх мультиграфика: «Подпись1 49 · Подпись2 55 …» цветами серий */
-        private fun bindMultiValuesRow(panel: Panel) {
-            val tv = tvValue ?: return
-            val ss = android.text.SpannableStringBuilder()
-            panel.series.forEachIndexed { i, ser ->
-                if (ser.topic.isBlank() && ser.label.isBlank()) return@forEachIndexed
-                val fallback = parseColor(legendPalette[i % legendPalette.size], ChartView.DEFAULT_COLOR)
-                val color = parseColor(ser.color, fallback)
-                val label = ser.label.ifBlank { ser.topic.substringAfterLast('/').ifBlank { ser.topic } }
-                if (ss.isNotEmpty()) ss.append("   ")
-                val at = ss.length
-                ss.append(label).append(' ')
-                ss.setSpan(
-                    android.text.style.ForegroundColorSpan(color),
-                    at, at + label.length + 1, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                val vStart = ss.length
-                val value = chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let { fmtLegend(it.v) + panel.unitSuffix }
-                    ?: panel.lastValue.takeIf { j -> j.isNotEmpty() && i == (multiLastSeries[panel.id] ?: 0) }
-                    ?: "—"
-                ss.append(value)
-                ss.setSpan(
-                    android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-                    vStart, ss.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                ss.setSpan(
-                    android.text.style.ForegroundColorSpan(color),
-                    vStart, ss.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-            if (ss.isEmpty()) ss.append(panel.lastValue.ifBlank { "—" })
-            tv.text = ss
-        }
-
         private fun buildLegend(panel: Panel) {
             val lg = legend ?: return
             val ctx = lg.context
             val d = ctx.resources.displayMetrics.density
             lg.removeAllViews()
+            val visible = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() }
             panel.series.forEachIndexed { i, s ->
                 if (s.topic.isBlank() && s.label.isBlank()) return@forEachIndexed
                 val row = android.widget.LinearLayout(ctx).apply {
                     orientation = android.widget.LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
+                    // строки вплотную: легенда не должна отбирать высоту у графика
+                    setPadding(0, 0, 0, 0)
                 }
-                val dotSize = (12 * d).toInt()
+                val dotSize = (8 * d).toInt()
                 val dot = View(ctx)
                 dot.layoutParams = android.widget.LinearLayout.LayoutParams(dotSize, dotSize).apply {
-                    marginEnd = (6 * d).toInt()
+                    marginEnd = (5 * d).toInt()
                 }
                 val fallback = parseColor(legendPalette[i % legendPalette.size], ChartView.DEFAULT_COLOR)
+                val color = parseColor(s.color, fallback)
                 dot.background = android.graphics.drawable.GradientDrawable().apply {
                     shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(parseColor(s.color, fallback))
+                    setColor(color)
                 }
                 row.addView(dot)
-                val label = android.widget.TextView(ctx).apply {
-                    // номер серии — как в подсказке крестовины, чтобы связать строку
-                    // подсказки «1. 21.4» с нужной линией легенды
-                    val numPrefix = if (panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1) "${i + 1}. " else ""
-                    text = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
-                    textSize = 13f
+                // Одна строка на серию: «1. Подпись 21.4 °C» — значение тем же
+                // цветом, что и линия. Раньше значение рисовалось ещё и сверху
+                // карточки отдельной строкой — это был дубль.
+                val value = chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let {
+                    " " + fmtLegend(it.v) + panel.unitSuffix
+                } ?: panel.lastValue.takeIf { it.isNotBlank() && i == (multiLastSeries[panel.id] ?: 0) }
+                    ?.let { " $it${panel.unitSuffix}" }
+                    ?: ""
+                val text = android.text.SpannableStringBuilder()
+                val numPrefix = if (visible > 1) "${i + 1}. " else ""
+                val label = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
+                text.append(label)
+                if (value.isNotEmpty()) {
+                    val start = text.length
+                    text.append(value)
+                    text.setSpan(
+                        android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                        start, text.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    text.setSpan(
+                        android.text.style.ForegroundColorSpan(color),
+                        start, text.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                val tv = android.widget.TextView(ctx).apply {
+                    setText(text)
+                    textSize = 12f
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 }
-                row.addView(label)
-                // значение серии — цветом своего значения (динамический
-                // перекрывает цвет серии), рядом с подписью
-                chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let { p ->
-                    val tvVal = android.widget.TextView(ctx).apply {
-                        text = "  " + fmtLegend(p.v) + panel.unitSuffix
-                        textSize = 13f
-                        setTypeface(typeface, android.graphics.Typeface.BOLD)
-                        setTextColor(parseColor(s.color, fallback))
-                        layoutParams = android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply { marginStart = (8 * d).toInt() }
-                    }
-                    row.addView(tvVal)
-                }
+                row.addView(tv)
                 lg.addView(row)
             }
         }

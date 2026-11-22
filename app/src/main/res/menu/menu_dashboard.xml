@@ -3,12 +3,6 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
-        android:id="@+id/action_connect"
-        android:icon="@drawable/ic_play"
-        android:title="@string/connect"
-        app:showAsAction="never" />
-
-    <item
         android:id="@+id/action_scan"
         android:icon="@drawable/ic_mqtt"
         android:title="@string/scan"
@@ -24,6 +18,12 @@
         android:id="@+id/action_move"
         android:icon="@drawable/ic_move"
         android:title="@string/move_mode"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_lock"
+        android:icon="@drawable/ic_lock"
+        android:title="@string/lock_mode"
         app:showAsAction="never" />
 
 </menu>

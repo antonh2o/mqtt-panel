@@ -255,4 +255,8 @@
     <string name="theme_light">Light theme</string>
     <string name="theme_dark">Dark theme</string>
     <string name="theme_system">Follow system</string>
+    <string name="lock_mode">Lock</string>
+    <string name="unlock_mode">Unlock</string>
+    <string name="lock_mode_hint">Dashboard locked: cards only display data. Card menus, update time and moving are hidden.</string>
+    <string name="unlock_mode_hint">Unlocked: card menus and moving are available again.</string>
 </resources>

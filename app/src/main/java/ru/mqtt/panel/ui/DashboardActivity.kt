@@ -382,11 +382,13 @@ class DashboardActivity : AppCompatActivity() {
         menu.findItem(R.id.action_move)?.setIcon(
             if (widgetAdapter.moveMode) R.drawable.ic_check else R.drawable.ic_move
         )
-        // пункт подключения отражает текущее состояние
-        val connected = svcState() == ConnectionState.CONNECTED
-        menu.findItem(R.id.action_connect)?.apply {
-            setIcon(if (connected) R.drawable.ic_pause else R.drawable.ic_play)
-            setTitle(if (connected) R.string.disconnect else R.string.connect)
+        // в режиме блокировки правки запрещены: перемещение и добавление скрыты,
+        // а пункт меню предлагает снять блокировку
+        menu.findItem(R.id.action_move)?.isVisible = !widgetAdapter.locked
+        menu.findItem(R.id.action_add)?.isVisible = !widgetAdapter.locked
+        menu.findItem(R.id.action_lock)?.apply {
+            setIcon(if (widgetAdapter.locked) R.drawable.ic_lock_open else R.drawable.ic_lock)
+            setTitle(if (widgetAdapter.locked) R.string.unlock_mode else R.string.lock_mode)
         }
         return super.onPrepareOptionsMenu(menu)
     }
@@ -394,12 +396,30 @@ class DashboardActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: android.view.MenuItem): Boolean {
         when (item.itemId) {
             android.R.id.home -> { finish(); return true }
-            R.id.action_connect -> { toggleConnection(); invalidateOptionsMenu(); return true }
             R.id.action_scan -> { showScanner(); return true }
             R.id.action_add -> { addPanel(); return true }
             R.id.action_move -> { toggleMoveMode(); return true }
+            R.id.action_lock -> { toggleLockMode(); return true }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /** Блокировка дашборда: карточки только показывают данные — без меню,
+     *  ручек, времени обновления и перемещения. Защита от случайных правок. */
+    private fun toggleLockMode() {
+        widgetAdapter.locked = !widgetAdapter.locked
+        if (widgetAdapter.locked) {
+            // перемещение и блокировка несовместимы: выходим из режима
+            if (widgetAdapter.moveMode) {
+                widgetAdapter.moveMode = false
+                lifecycleScope.launch { repository.savePanelOrder(widgetAdapter.snapshotOrder()) }
+            }
+            Toast.makeText(this, R.string.lock_mode_hint, Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, R.string.unlock_mode_hint, Toast.LENGTH_SHORT).show()
+        }
+        invalidateOptionsMenu()
+        widgetAdapter.notifyDataSetChanged()
     }
 
     /** Включает/выключает режим перемещения карточек */

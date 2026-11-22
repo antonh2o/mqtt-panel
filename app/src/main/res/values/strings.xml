@@ -258,4 +258,8 @@
     <string name="theme_light">Светлая тема</string>
     <string name="theme_dark">Тёмная тема</string>
     <string name="theme_system">Как в системе</string>
+    <string name="lock_mode">Заблокировать</string>
+    <string name="unlock_mode">Разблокировать</string>
+    <string name="lock_mode_hint">Дашборд заблокирован: карточки только показывают данные. Меню карточек, время обновления и перемещение скрыты.</string>
+    <string name="unlock_mode_hint">Блокировка снята: снова доступны меню карточек и перемещение.</string>
 </resources>

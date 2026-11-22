@@ -58,6 +58,7 @@
             android:textSize="16sp"
             android:textStyle="bold"
             android:text="—"
+            android:visibility="gone"
             app:autoSizeTextType="uniform"
             app:autoSizeMinTextSize="10sp"
             app:autoSizeMaxTextSize="16sp"/>
@@ -65,15 +66,15 @@
         <ru.mqtt.panel.ui.ChartView
             android:id="@+id/chart_view"
             android:layout_width="match_parent"
-            android:layout_height="76dp"
-            android:layout_marginTop="4dp" />
+            android:layout_height="104dp"
+            android:layout_marginTop="2dp" />
 
-        <!-- Легенда: цветной кружок + подпись для каждой серии -->
+        <!-- Легенда: цветной кружок + подпись и значение для каждой серии -->
         <LinearLayout
             android:id="@+id/chart_legend"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
+            android:layout_marginTop="2dp"
             android:orientation="vertical" />
 
         <!-- Чипы периода истории (показываются у narodmon/Grafana-графиков) -->
