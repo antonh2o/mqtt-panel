@@ -1811,10 +1811,17 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /** Значения из кэша сообщений сервиса — карточки, пропустившие retained,
-     *  оживают сразу, не дожидаясь следующего сообщения (у wanip это минуты) */
+     *  оживают сразу, не дожидаясь следующего сообщения (у wanip это минуты).
+     *  Для narodmon — NarodmonService.lastMessages */
     private fun applyServiceReplay() {
-        for ((topic, payload, time) in MqttService.replayLast(connectionId)) {
-            widgetAdapter.updateValueByTopic(topic, payload, time)
+        if (useNarodmon()) {
+            for ((topic, payload, time) in NarodmonService.replayLast(connectionId)) {
+                widgetAdapter.updateValueByTopic(topic, payload, time)
+            }
+        } else {
+            for ((topic, payload, time) in MqttService.replayLast(connectionId)) {
+                widgetAdapter.updateValueByTopic(topic, payload, time)
+            }
         }
     }
 

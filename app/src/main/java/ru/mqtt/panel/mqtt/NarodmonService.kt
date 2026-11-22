@@ -73,6 +73,15 @@ class NarodmonService : Service() {
 
         fun uptimeSeconds(): Long =
             if (connectedAt == 0L) -1L else (System.currentTimeMillis() - connectedAt) / 1000L
+
+        /** Последние N сообщений для replay при старте DashboardActivity —
+         *  аналог MqttService.replayLast. Нужен потому что NarodmonService
+         *  запускается в onCreate(), а приёмник регистрируется в onResume() —
+         *  первый poll мог случиться раньше регистрации и значения бы потерялись */
+        private val lastMessages = java.util.concurrent.ConcurrentHashMap<Long, MutableList<Triple<String, String, Long>>>()
+
+        fun replayLast(connectionId: Long): List<Triple<String, String, Long>> =
+            lastMessages[connectionId] ?: emptyList()
     }
 
     private var connection: MqttConnection? = null
@@ -208,13 +217,14 @@ class NarodmonService : Service() {
     /** Время последней попытки форс-логина — троттлинг повторных входов при 401 */
     private var lastForceLogon = 0L
 
-    /** Разослать значения датчиков: общий код первого опроса и повтора после релогина */
+    /** Разослать значения датчиков: общий код первого опроса и повтора после релога */
     private fun deliver(conn: MqttConnection, sensors: List<NarodmonApi.NmSensor>) {
         connectedAt = System.currentTimeMillis()
         connectionState = ConnectionState.CONNECTED
         backoff = 1
         broadcastStatus(ConnectionState.CONNECTED)
         val lm = LocalBroadcastManager.getInstance(this@NarodmonService)
+        val msgs = mutableListOf<Triple<String, String, Long>>()
         sensors.forEach { s ->
             val payload = NarodmonApi.fmt(s.value!!)
             // время платформы (сек) идёт в график: точки встают на шкалу времени
@@ -225,7 +235,10 @@ class NarodmonService : Service() {
                 putExtra(MqttService.EXTRA_MESSAGE_PAYLOAD, payload)
                 putExtra(MqttService.EXTRA_MESSAGE_TIME, timeMs)
             })
+            msgs.add(Triple(s.id.toString(), payload, timeMs))
         }
+        // replay для DashboardActivity (replayLast) — до 50 последних сообщений
+        lastMessages[conn.id] = msgs.takeLast(50).toMutableList()
     }
 
     private fun broadcastStatus(state: ConnectionState) {
