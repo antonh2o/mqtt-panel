@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Полупрозрачная плашка легенды/времени поверх графика (как legend box
+     в matplotlib): цвет поверхности темы, скругления; полупрозрачность
+     задаётся android:alpha на самом view -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="?attr/colorSurface" />
+    <corners android:radius="8dp" />
+</shape>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Время последней передачи данных ПОВЕРХ графика (карточки графиков):
+     плашка в правом верхнем углу поля графика вместо отдельной строки внизу -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tv_time"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:gravity="end"
+    android:paddingStart="6dp"
+    android:paddingEnd="7dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp"
+    android:textSize="9sp"
+    android:textColor="?android:attr/textColorSecondary"
+    android:maxLines="1"
+    android:alpha="0.88"
+    android:background="@drawable/legend_overlay_bg"
+    android:visibility="gone" />

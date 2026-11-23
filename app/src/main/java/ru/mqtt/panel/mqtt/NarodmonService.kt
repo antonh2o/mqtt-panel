@@ -61,13 +61,6 @@ class NarodmonService : Service() {
         @Volatile
         var serviceAlive: Boolean = false
 
-        /** Пауза опроса значений: во время пакетной загрузки истории
-         *  (loadNarodmonChartHistory) весь лимит платформы ≈3 запроса/мин
-         *  отдаётся запросам sensorsHistory, иначе они конкурсируют
-         *  с минутным sensorsNearby и начинают получать отказы */
-        @Volatile
-        var pollingPaused: Boolean = false
-
         @Volatile
         var connectedAt: Long = 0L
 
@@ -93,8 +86,9 @@ class NarodmonService : Service() {
 
     private val pollLoop = object : Runnable {
         override fun run() {
-            // во время пакетной загрузки истории значения не опрашиваем
-            if (!pollingPaused) pollOnce()
+            // значения опрашиваются всегда: пауза на время пакета истории
+            // (0.2.78–0.2.80) замораживала карточки на 5–15 минут — см. FIXPLAN
+            pollOnce()
             handler.postDelayed(this, 60_000L * backoff)
         }
     }
@@ -219,12 +213,18 @@ class NarodmonService : Service() {
 
     /** Разослать значения датчиков: общий код первого опроса и повтора после релога */
     private fun deliver(conn: MqttConnection, sensors: List<NarodmonApi.NmSensor>) {
+        // Диагностика «значения не обновляются»: успешный опрос в журнал не
+        // писался вовсе, и отличить «платформа молчит по датчику» от «приложение
+        // не опрашивает» было невозможно. Раз в 5 минут фиксируем: кого нет
+        // в ответе и кого платформа отдаёт устаревшим (см. FIXPLAN, задача 1)
+        diagnosePoll(sensors)
+        val withValue = sensors.filter { it.value != null }
         // Пустой ответ — НЕ «подключено»: платформа могла отдать пустой список
         // (устройства offline/ошибка разбора), и зелёный статус с таймером
         // маскировал бы застывшие значения. Оставляем CONNECTING и пишем причину
-        if (sensors.isEmpty()) {
+        if (withValue.isEmpty()) {
             ImportLog.write(applicationContext,
-                "NARODMON poll: платформа вернула 0 датчиков — значения не обновлены")
+                "NARODMON poll: платформа вернула 0 датчиков со значением — значения не обновлены")
             connectionState = ConnectionState.CONNECTING
             broadcastStatus(ConnectionState.CONNECTING)
             return
@@ -239,7 +239,7 @@ class NarodmonService : Service() {
         broadcastStatus(ConnectionState.CONNECTED)
         val lm = LocalBroadcastManager.getInstance(this@NarodmonService)
         val msgs = mutableListOf<Triple<String, String, Long>>()
-        sensors.forEach { s ->
+        withValue.forEach { s ->
             val payload = NarodmonApi.fmt(s.value!!)
             // время платформы (сек) идёт в график: точки встают на шкалу времени
             val timeMs = if (s.time > 0) s.time * 1000L else System.currentTimeMillis()
@@ -253,6 +253,52 @@ class NarodmonService : Service() {
         }
         // replay для DashboardActivity (replayLast) — до 50 последних сообщений
         lastMessages[conn.id] = msgs.takeLast(50).toMutableList()
+    }
+
+    /** Время последней диагностической записи об успешном опросе (троттлинг 5 мин) */
+    private var lastDiagLog = 0L
+
+    /** Что вернул успешный опрос: кого нет в ответе, у кого нет значения,
+     *  и кого платформа отдаёт устаревшим */
+    private fun diagnosePoll(sensors: List<NarodmonApi.NmSensor>) {
+        val now = System.currentTimeMillis()
+        if (now - lastDiagLog < 5 * 60_000L) return
+        lastDiagLog = now
+        val have = sensors.associateBy { it.id }
+        val missing = mutableListOf<String>()
+        val noValue = mutableListOf<String>()
+        panels.forEach { p ->
+            val id = p.topicSubscribe.toIntOrNull() ?: return@forEach
+            val s = have[id]
+            when {
+                s == null -> missing.add("${id} «${p.name}»")
+                s.value == null -> noValue.add("${id} «${p.name}»")
+            }
+        }
+        val nowSec = now / 1000L
+        val stale = sensors.filter { it.value != null && it.time in 1 until nowSec - 3600 }
+            .map { s ->
+                val stamp = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(s.time * 1000L))
+                "${s.id} «${s.name}» (платформа: значение от $stamp, ${ageHuman(nowSec - s.time)})"
+            }
+        if (missing.isEmpty() && noValue.isEmpty() && stale.isEmpty()) return
+        ImportLog.write(applicationContext, buildString {
+            append("NARODMON poll ok: датчиков в ответе ${sensors.size}")
+            if (missing.isNotEmpty()) append("; НЕТ В ОТВЕТЕ: ${missing.joinToString(", ")}")
+            if (noValue.isNotEmpty()) append("; БЕЗ ЗНАЧЕНИЯ: ${noValue.joinToString(", ")}")
+            if (stale.isNotEmpty()) append("; СТАРШЕ ЧАСА: ${stale.joinToString(", ")}")
+        })
+    }
+
+    /** Возраст в человекочитаемом виде: «3 ч 5 мин» / «2 сут» */
+    private fun ageHuman(sec: Long): String {
+        val min = sec / 60
+        return when {
+            min < 60 -> "$min мин"
+            min < 48 * 60 -> "${min / 60} ч ${min % 60} мин"
+            else -> "${min / (24 * 60)} сут"
+        }
     }
 
     private fun broadcastStatus(state: ConnectionState) {

@@ -62,11 +62,27 @@
             app:autoSizeMinTextSize="10sp"
             app:autoSizeMaxTextSize="16sp"/>
 
-        <ru.mqtt.panel.ui.ChartView
-            android:id="@+id/chart_view"
+        <!-- График с НАКЛАДКОЙ: время последней передачи лежит поверх поля
+             графика в правом верхнем углу (плашка), отдельной строки внизу нет -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="76dp"
-            android:layout_marginTop="4dp" />
+            android:layout_marginTop="4dp">
+
+            <ru.mqtt.panel.ui.ChartView
+                android:id="@+id/chart_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <include
+                layout="@layout/view_card_time_overlay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="2dp" />
+
+        </FrameLayout>
 
         <include layout="@layout/view_chart_periods" />
 
@@ -79,8 +95,6 @@
             android:textColor="?android:attr/textColorSecondary"
             android:maxLines="1"
             android:ellipsize="middle" />
-
-    <include layout="@layout/view_card_time" />
 
     </LinearLayout>
 

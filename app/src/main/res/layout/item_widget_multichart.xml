@@ -63,24 +63,51 @@
             app:autoSizeMinTextSize="10sp"
             app:autoSizeMaxTextSize="16sp"/>
 
-        <ru.mqtt.panel.ui.ChartView
-            android:id="@+id/chart_view"
+        <!-- График с НАКЛАДКАМИ в стиле matplotlib: легенда серий — плашкой в
+             левом верхнем углу поля графика, время последней передачи — в
+             правом. Отдельных строк под графиком больше нет: место отдаётся
+             кривым. Легенда не перехватывает жесты (не-clickable) -->
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="104dp"
-            android:layout_marginTop="2dp" />
+            android:layout_marginTop="2dp">
 
-        <!-- Легенда: цветной кружок + подпись и значение для каждой серии -->
-        <LinearLayout
-            android:id="@+id/chart_legend"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:orientation="vertical" />
+            <ru.mqtt.panel.ui.ChartView
+                android:id="@+id/chart_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+            <!-- Легенда: цветной кружок + подпись и значение для каждой серии.
+                 По центру верха; видна при касании графика и 3 с после прихода
+                 показаний (правило в WidgetAdapter), остальное время скрыта -->
+            <LinearLayout
+                android:id="@+id/chart_legend"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="2dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:orientation="vertical"
+                android:background="@drawable/legend_overlay_bg"
+                android:paddingStart="7dp"
+                android:paddingTop="3dp"
+                android:paddingEnd="7dp"
+                android:paddingBottom="4dp"
+                android:alpha="0.88" />
+
+            <include
+                layout="@layout/view_card_time_overlay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="2dp" />
+
+        </FrameLayout>
 
         <!-- Чипы периода истории (показываются у narodmon/Grafana-графиков) -->
         <include layout="@layout/view_chart_periods" />
-
-    <include layout="@layout/view_card_time" />
 
     </LinearLayout>
 

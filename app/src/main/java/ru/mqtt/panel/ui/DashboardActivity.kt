@@ -262,6 +262,12 @@ class DashboardActivity : AppCompatActivity() {
             },
             onDragStart = { holder -> dragHelper?.startDrag(holder) }
         )
+        // Блокировка переживает перезапуск приложения: состояние хранится в
+        // prefs и восстанавливается ДО первого бинда (меню и карточки
+        // отрисовываются уже в согласованном режиме)
+        widgetAdapter.locked = getSharedPreferences("dashboard", MODE_PRIVATE)
+            .getBoolean("locked", false)
+        applyLockEdgePadding()
         // Чипы «1d/1w/1m/1y» на narodmon-графике: сохранить период и перезагрузить историю
         widgetAdapter.onChartPeriodSelected = { panel, period -> onChartPeriodChanged(panel, period) }
 
@@ -405,9 +411,14 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /** Блокировка дашборда: карточки только показывают данные — без меню,
-     *  ручек, времени обновления и перемещения. Защита от случайных правок. */
+     *  ручек, времени обновления и перемещения, плюс плотная раскладка
+     *  (без полей между карточками). Защита от случайных правок.
+     *  Состояние сохраняется в prefs и переживает перезапуск. */
     private fun toggleLockMode() {
         widgetAdapter.locked = !widgetAdapter.locked
+        getSharedPreferences("dashboard", MODE_PRIVATE).edit()
+            .putBoolean("locked", widgetAdapter.locked).apply()
+        applyLockEdgePadding()
         if (widgetAdapter.locked) {
             // перемещение и блокировка несовместимы: выходим из режима
             if (widgetAdapter.moveMode) {
@@ -420,6 +431,13 @@ class DashboardActivity : AppCompatActivity() {
         }
         invalidateOptionsMenu()
         widgetAdapter.notifyDataSetChanged()
+    }
+
+    /** Крайние отступы сетки: в блокировке ужаты 8 → 4dp — больше места
+     *  данным (поля МЕЖДУ карточками обнуляются в адаптере) */
+    private fun applyLockEdgePadding() {
+        val p = (if (widgetAdapter.locked) 4 else 8) * resources.displayMetrics.density
+        binding.recyclerWidgets.setPadding(p.toInt(), p.toInt(), p.toInt(), p.toInt())
     }
 
     /** Включает/выключает режим перемещения карточек */
@@ -675,6 +693,9 @@ class DashboardActivity : AppCompatActivity() {
             // из-за лимита платформы), live-точки допишутся поверх
             if (connection.narodmon) loadNarodmonChartHistory(panels)
             else if (connection.grafanaEnabled()) loadGrafanaChartHistory(panels)
+            // Демо-графики: пересеять синтетическую историю под выбранный период,
+            // чтобы чипы час/день/нед/мес/год работали без Народмона и Grafana
+            seedDemoChartHistory(panels)
             // чипы периодов видны на всех графиках этого подключения
             widgetAdapter.grafanaConnectionIds =
                 if (connection.grafanaEnabled()) setOf(connection.id) else emptySet()
@@ -1058,7 +1079,10 @@ class DashboardActivity : AppCompatActivity() {
 
     /**
      * Истории графиков Народмона: для каждой narodmon-панели типа График —
-     * sensorsHistory (сутки) с паузами из-за лимита платформы (≈3 запроса/мин).
+     * sensorsHistory с троттлингом из-за лимита платформы (≈3 запроса/мин):
+     * минутный опрос значений идёт всегда (1 запрос/мин), история — не чаще
+     * 2 запросов/мин (пауза 30 с). Раньше на время пакета опрос значений
+     * полностью ставился на паузу — карточки замирали на 5–15 минут.
      * Обновление не чаще раза в 30 минут (время — в runtime-кэше панели).
      */
     private fun loadNarodmonChartHistory(panels: List<Panel>) {
@@ -1071,11 +1095,6 @@ class DashboardActivity : AppCompatActivity() {
         historyLoading = true
         lifecycleScope.launch {
             try {
-                // Лимит платформы ≈3 запроса/мин делится между минутным опросом
-                // значений и пакетом sensorsHistory. На время пакета опрос значений
-                // приостанавливается — весь лимит уходит истории, и графики
-                // грузятся через 21 с (а не через 45 с, как раньше)
-                ru.mqtt.panel.mqtt.NarodmonService.pollingPaused = true
                 var pauseMs = 0L          // первый график — сразу
                 for (panel in chartPanels) {
                     val sensorId = panel.topicSubscribe.toIntOrNull() ?: continue
@@ -1091,11 +1110,11 @@ class DashboardActivity : AppCompatActivity() {
                     }.getOrElse { emptyList() }
                     if (points.isEmpty()) {
                         // пусто или отказ (лимит) — плавно увеличиваем паузу
-                        // (21 → 42 → 84 → до 120 с), успех возвращает к 21 с
-                        pauseMs = minOf(maxOf(pauseMs, 21_000L) * 2, 120_000L)
+                        // (30 → 60 → 120 с), успех возвращает к 30 с
+                        pauseMs = minOf(maxOf(pauseMs, 30_000L) * 2, 120_000L)
                         continue
                     }
-                    pauseMs = 21_000L
+                    pauseMs = 30_000L
 
                     withContext(Dispatchers.Main) {
                         widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
@@ -1110,11 +1129,77 @@ class DashboardActivity : AppCompatActivity() {
                     repository.saveRuntimeValues(connectionId, all)
                 }
             } finally {
-                // опрос значений возвращается сразу после пакета
-                ru.mqtt.panel.mqtt.NarodmonService.pollingPaused = false
                 historyLoading = false
             }
         }
+    }
+
+    /**
+     * Демо-графики: если истории ещё нет (или она за другой период) —
+     * синтезировать кривую DemoHistory под текущий период панели.
+     * Живые точки издателя дополняют кривую: последняя точка генератора
+     * всегда «сейчас» со значением base, скачка на стыке нет.
+     */
+    private fun seedDemoChartHistory(panels: List<Panel>) {
+        val chartPanels = panels.filter { it.demo &&
+            (it.type == WidgetType.CHART || it.type == WidgetType.MULTI_CHART) }
+        if (chartPanels.isEmpty()) return
+        val now = System.currentTimeMillis()
+        for (panel in chartPanels) {
+            val period = panel.historyPeriod ?: "day"
+            if (panel.type == WidgetType.MULTI_CHART) {
+                val existing = widgetAdapter.multiPointsOf(panel.id)
+                val seeded = panel.series.indices.any { i ->
+                    (existing[i]?.size ?: 0) > 1
+                }
+                if (seeded) continue
+                // база серии — её последнее живое значение, иначе таблица демо
+                val defaults = floatArrayOf(21.5f, 4.0f, 45f, 650f)
+                panel.series.indices.forEach { i ->
+                    val base = existing[i]?.lastOrNull()?.v
+                        ?: defaults.getOrElse(i) { 21.5f }
+                    val pts = ru.mqtt.panel.data.DemoHistory.points(
+                        period, now, base, panel.id.toInt() + i)
+                    widgetAdapter.prependMultiHistory(panel.id, i,
+                        pts.map { ChartView.TimePoint(it.t, it.v) })
+                }
+            } else {
+                if (widgetAdapter.hasHistory(panel.id, false)) continue
+                val base = widgetAdapter.chartPointsOf(panel.id).lastOrNull()?.v
+                    ?: panel.lastValue.toFloatOrNull()
+                    ?: 21.5f
+                val pts = ru.mqtt.panel.data.DemoHistory.points(
+                    period, now, base, panel.id.toInt())
+                widgetAdapter.replaceHistory(panel.id,
+                    pts.map { ChartView.TimePoint(it.t, it.v) })
+            }
+        }
+    }
+
+    /** Перегенерировать демо-историю под новый период (переключение чипа) */
+    private fun reloadDemoHistory(panel: Panel) {
+        val now = System.currentTimeMillis()
+        val period = panel.historyPeriod ?: "day"
+        if (panel.type == WidgetType.MULTI_CHART) {
+            val existing = widgetAdapter.multiPointsOf(panel.id)
+            widgetAdapter.clearMultiHistory(panel.id)
+            panel.series.indices.forEach { i ->
+                val base = existing[i]?.lastOrNull()?.v ?: 21.5f
+                val pts = ru.mqtt.panel.data.DemoHistory.points(
+                    period, now, base, panel.id.toInt() + i)
+                widgetAdapter.prependMultiHistory(panel.id, i,
+                    pts.map { ChartView.TimePoint(it.t, it.v) })
+            }
+        } else {
+            val base = widgetAdapter.chartPointsOf(panel.id).lastOrNull()?.v
+                ?: panel.lastValue.toFloatOrNull()
+                ?: 21.5f
+            val pts = ru.mqtt.panel.data.DemoHistory.points(
+                period, now, base, panel.id.toInt())
+            widgetAdapter.replaceHistory(panel.id,
+                pts.map { ChartView.TimePoint(it.t, it.v) })
+        }
+        refreshFullscreen(panel.id)
     }
 
     /**
@@ -1132,7 +1217,8 @@ class DashboardActivity : AppCompatActivity() {
             // график НЕ очищаем заранее: при пустом результате за новый период
             // остаётся прежняя кривая (скачок на пустой экран = «скачет экран»);
             // старые точки замещаются только после успешной загрузки
-            if (updated.source == "narodmon") reloadPanelHistory(updated)
+            if (updated.demo) reloadDemoHistory(updated)
+            else if (updated.source == "narodmon") reloadPanelHistory(updated)
             else reloadGrafanaHistory(updated)
         }
     }

@@ -73,6 +73,32 @@ class ChartView @JvmOverloads constructor(
         }
 
     /**
+     * Подписи осей в стиле matplotlib (анатомия классического графика):
+     * подпись оси X под метками времени, подпись оси Y (единицы измерения)
+     * повёрнута слева от шкалы. На карточках выключено — там каждая точка
+     * высоты на счету; включается на полном экране.
+     */
+    var axisLabels: Boolean = false
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** Текст подписи оси X («Время»); пусто — не рисуется */
+    var xLabel: String = ""
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** Текст подписи оси Y (единицы измерения панели); пусто — не рисуется */
+    var yLabel: String = ""
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /**
      * Динамическая раскраска линии по значению (диапазон мин→середина→макс
      * панели): каждый сегмент и каждая точка красятся цветом своего значения.
      * null — линия рисуется одним цветом (lineColor / цвет серии).
@@ -108,6 +134,15 @@ class ChartView @JvmOverloads constructor(
     /** Вызывается при изменении масштаба: true — приближено, false — весь период */
     var onZoomChanged: ((Boolean) -> Unit)? = null
 
+    /** Палец опустился/поднялся на графике: карточка мультиграфика показывает
+     *  легенду поверх кривых, пока пользователь держит палец */
+    var onChartTouch: ((Boolean) -> Unit)? = null
+
+    /** Зона плашки легенды поверх графика (координаты ChartView): пузырь
+     *  перекрестия опускается ПОД неё, если наезжает по горизонтали,
+     *  и не перекрывается */
+    var overlayTopRect = android.graphics.RectF()
+
     private val density = resources.displayMetrics.density
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -126,6 +161,20 @@ class ChartView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 1.8f * density
         color = withAlpha(DEFAULT_COLOR, GRID_ALPHA)
+    }
+
+    /** Рамка-оси вокруг поля графика и основные тики (matplotlib spines/ticks) */
+    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
+        color = withAlpha(NEUTRAL_COLOR, 130)
+    }
+
+    /** Дополнительная (minor) сетка: тоньше и бледнее основной, сплошная */
+    private val minorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 0.75f * density
+        color = withAlpha(NEUTRAL_COLOR, 42)
     }
 
     /** Пунктир для сетки (как в референсе Народмон): короткое тире + пробел */
@@ -315,6 +364,7 @@ class ChartView @JvmOverloads constructor(
                 downY = event.y
                 swipeArmed = false
                 scaleWasActive = false
+                onChartTouch?.invoke(true)
                 // крестовину НЕ показываем сразу: короткое касание-«протяжка»
                 // не должно мелькать значением — разделение жестов честное:
                 // удержание/ведение = крестовина, резкий широкий жест = свайп
@@ -349,6 +399,7 @@ class ChartView @JvmOverloads constructor(
                 return true
             }
             android.view.MotionEvent.ACTION_UP -> {
+                onChartTouch?.invoke(false)
                 if (scaleWasActive) {
                     scaleWasActive = false
                     parent?.requestDisallowInterceptTouchEvent(false)
@@ -376,6 +427,7 @@ class ChartView @JvmOverloads constructor(
                 scaleWasActive = false
                 touchT = null
                 invalidate()
+                onChartTouch?.invoke(false)
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return false
             }
@@ -474,7 +526,9 @@ class ChartView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val timeLabelsH = 17f * density
-        val h = height - timeLabelsH
+        // под подписью оси X резервируется отдельная строка (полный экран)
+        val axisH = if (axisLabels) 11f * density else 0f
+        val h = height - timeLabelsH - axisH
 
         val drawable = series.filter { it.points.size >= 2 }
         if (drawable.isEmpty()) {
@@ -490,6 +544,7 @@ class ChartView @JvmOverloads constructor(
                 canvas.drawLine(gx, 0f, gx, h, gridPaint)
             }
             gridPaint.pathEffect = null
+            canvas.drawRect(0.5f, 0.5f, width - 0.5f, h - 0.5f, framePaint)
             return
         }
 
@@ -568,7 +623,9 @@ class ChartView @JvmOverloads constructor(
             labelMaxW = maxOf(labelMaxW, scalePaint.measureText(format(lv)))
             lv += step
         }
-        val gutter = if (showScale) labelMaxW + 4f * density else 0f
+        // колонка подписи оси Y — левее меток шкалы (только полный экран)
+        val axisW = if (axisLabels) 11f * density else 0f
+        val gutter = if (showScale) labelMaxW + 4f * density + axisW else 0f
         val w = width - gutter
         if (w <= 0f) return
         val topPad = if (showScale) 10f * density else 4f
@@ -576,6 +633,21 @@ class ChartView @JvmOverloads constructor(
 
         fun x(t: Long) = gutter + (t - viewTMin).toFloat() / (viewTMax - viewTMin) * w
         fun y(v: Float) = h - (v - niceMin) / range * usableH - 4f * density
+
+        // ДОПОЛНИТЕЛЬНАЯ (minor) сетка в стиле matplotlib: тонкие сплошные
+        // линии в половине шага major-уровней (по вертикали) и в промежутках
+        // четвертей ширины (по горизонтали). Гуще 2 подразделений на телефоне
+        // превращается в шум.
+        var half = niceMin + step / 2f
+        while (half < niceMax) {
+            val gy = y(half)
+            if (gy in 0f..h) canvas.drawLine(gutter, gy, gutter + w, gy, minorPaint)
+            half += step
+        }
+        for (k in 1..7 step 2) {
+            val gx = gutter + w * k / 8f
+            canvas.drawLine(gx, 0f, gx, h, minorPaint)
+        }
 
         // Сетка: горизонтальные пунктирные линии по «красивым» уровням шкалы
         // с подписью значения прямо на линии + вертикальные по отметкам времени.
@@ -587,8 +659,19 @@ class ChartView @JvmOverloads constructor(
                 canvas.drawLine(gutter, gy, gutter + w, gy, gridPaint)
                 scalePaint.textAlign = Paint.Align.RIGHT
                 canvas.drawText(format(level), gutter - 3f * density, gy + 3.5f * density, scalePaint)
+                // основной тик наружу на левом крае (matplotlib major tick)
+                if (showScale) canvas.drawLine(gutter - 3.5f * density, gy, gutter, gy, framePaint)
             }
             level += step
+        }
+        // дополнительный (minor) тик на левом крае — короче, в половине шага
+        if (showScale) {
+            half = niceMin + step / 2f
+            while (half < niceMax) {
+                val gy = y(half)
+                if (gy in 0f..h) canvas.drawLine(gutter - 2f * density, gy, gutter, gy, framePaint)
+                half += step
+            }
         }
 
         // ВЕРТИКАЛЬНАЯ СЕТКА рисуется ВСЕГДА, фиксированным шагом (четверти
@@ -706,6 +789,40 @@ class ChartView @JvmOverloads constructor(
         timePaint.textAlign = Paint.Align.RIGHT
         canvas.drawText(ChartTimeFormat.label(span, viewTMax), gutter + w, labelY, timePaint)
 
+        // РАМКА-ОСИ (spines) вокруг поля графика — рисуется поверх данных,
+        // как в matplotlib; и ТИКИ по нижнему краю: основные на краях и
+        // четвертях (совпадают с major-сеткой), дополнительные — в промежутках
+        canvas.drawLine(gutter + 0.5f, 0f, gutter + 0.5f, h, framePaint)
+        canvas.drawLine(gutter + w - 0.5f, 0f, gutter + w - 0.5f, h, framePaint)
+        canvas.drawLine(gutter, 0.5f, gutter + w, 0.5f, framePaint)
+        canvas.drawLine(gutter, h - 0.5f, gutter + w, h - 0.5f, framePaint)
+        for (i in 0..4) {
+            val gx = gutter + w * i / 4f
+            canvas.drawLine(gx, h, gx, h + 3.5f * density, framePaint)
+        }
+        for (k in 1..7 step 2) {
+            val gx = gutter + w * k / 8f
+            canvas.drawLine(gx, h, gx, h + 2f * density, framePaint)
+        }
+
+        // ПОДПИСИ ОСЕЙ (полный экран): X — «Время» по центру под метками,
+        // Y — единицы измерения повёрнутой строкой слева от шкалы
+        if (axisLabels) {
+            if (xLabel.isNotBlank()) {
+                timePaint.textAlign = Paint.Align.CENTER
+                canvas.drawText(xLabel, gutter + w / 2f, labelY + axisH * 0.8f, timePaint)
+            }
+            if (yLabel.isNotBlank()) {
+                val cx = axisW * 0.62f
+                val cy = h / 2f
+                canvas.save()
+                canvas.rotate(-90f, cx, cy)
+                timePaint.textAlign = Paint.Align.CENTER
+                canvas.drawText(yLabel, cx, cy + scalePaint.textSize * 0.35f, timePaint)
+                canvas.restore()
+            }
+        }
+
         // запоминаем геометрию: по ней переводим касание в момент времени
         layoutGutter = gutter
         layoutW = w
@@ -778,7 +895,24 @@ class ChartView @JvmOverloads constructor(
         var bx = px + 8f * density * ts
         if (bx + boxW > gutter + w) bx = px - 8f * density * ts - boxW
         bx = bx.coerceIn(gutter, max(gutter, gutter + w - boxW))
-        val by = 2f * density
+        // Пузырь живёт У ВЕРХА графика и НЕ НАКРЫВАЕТ плашку легенды: если
+        // наезжает на неё по горизонтали — сдвигаем в свободную зону слева
+        // или справа от плашки (по-прежнему у верха). Под плашку опускаемся
+        // только когда по бокам пузырь не влезает
+        var by = 2f * density
+        if (!overlayTopRect.isEmpty &&
+            bx < overlayTopRect.right && bx + boxW > overlayTopRect.left
+        ) {
+            val freeL = overlayTopRect.left - gutter
+            val freeR = (gutter + w) - overlayTopRect.right
+            when {
+                boxW <= freeL -> bx = (overlayTopRect.left - boxW - 4f * density)
+                    .coerceIn(gutter, max(gutter, gutter + w - boxW))
+                boxW <= freeR -> bx = (overlayTopRect.right + 4f * density)
+                    .coerceIn(gutter, max(gutter, gutter + w - boxW))
+                else -> by = overlayTopRect.bottom + 2f * density
+            }
+        }
         val r = 4f * density * ts
         canvas.drawRoundRect(bx, by, bx + boxW, by + boxH, r, r, bubblePaint)
         bubbleTextPaint.textAlign = Paint.Align.LEFT

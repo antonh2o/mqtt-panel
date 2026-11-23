@@ -135,11 +135,13 @@ object NarodmonApi {
      *
      * sensorsValues на 06.11.2026 отвечает «410 Gone»/рвёт соединение при лимите,
      * поэтому поллинг идёт через sensorsNearby?my=1 — в его ответе уже есть
-     * текущие value и time каждого датчика. Возвращает датчики со значением.
+     * текущие value и time каждого датчика. Возвращает СЫРОЙ список — фильтр
+     * value != null делает вызывающий код: диагностика должна видеть и датчики
+     * без значения (см. NarodmonService.diagnosePoll).
      */
     suspend fun fetchOwnSensors(context: Context, apiKey: String): List<NmSensor> =
         withContext(Dispatchers.IO) {
-            parseList(request(context, apiKey, "sensorsNearby?my=1")).filter { it.value != null }
+            parseList(request(context, apiKey, "sensorsNearby?my=1"))
         }
 
     // --- парсинг вынесен наружу для юнит-тестов (без Android-зависимостей) ---

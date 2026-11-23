@@ -128,11 +128,14 @@ object DemoConfig {
                 span = 2
             },
 
-            // --- ряд 4: одиночный график + мультиграфик (по половине ширины)
+            // --- ряд 4: одиночный график + мультиграфик (по половине ширины).
+            // demo=true: у графиков работают чипы периодов — история
+            // синтезируется DemoHistory, без Народмона и Grafana
             panel("🌡 Климат", WidgetType.CHART, "$p/$S_HOME_T") {
                 span = 3; chartPoints = 120
                 sliderMin = 20.0; sliderMax = 28.0
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
+                demo = true
             },
             Panel(
                 connectionId = 1,
@@ -141,6 +144,7 @@ object DemoConfig {
                 chartPoints = 120,
                 span = 3,
                 unitSuffix = " °C",
+                demo = true,
                 series = listOf(
                     ChartSeries("$p/$S_HOME_T", "#43A047", "Дома"),
                     ChartSeries("$p/$S_STREET_T", "#1E88E5", "Улица")

@@ -164,6 +164,7 @@ class AppRepository(private val context: Context) {
                 historyPeriod = it.historyPeriod?.takeIf { p ->
                     p == "hour" || p == "day" || p == "week" || p == "month" || p == "year"
                 } ?: "day",
+                demo = it.demo,
             )
         }
         return AppConfig(fixedConnectionsGh, fixedPanels)

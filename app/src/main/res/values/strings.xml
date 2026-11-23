@@ -102,6 +102,8 @@
     <string name="field_clean_session">Чистая сессия</string>
     <string name="panel_list_empty">Нет панелей. Нажмите + чтобы добавить.</string>
     <string name="no_topic">Нет темы</string>
+    <string name="axis_time_label">Time</string>
+
     <string name="panels_count">Панелей: %1$d</string>
     <string name="widgets_count">Виджетов: %1$d</string>
     <string name="connection_enabled">Подключение включено</string>

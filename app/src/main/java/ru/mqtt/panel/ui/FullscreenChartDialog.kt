@@ -88,6 +88,10 @@ class FullscreenChartDialog(
         // остался прежним (~29dp) и не съедает кривую
         chart.tooltipScale = 2.2f
         chart.tooltipDark = darkTheme
+        // анатомия классического графика: подписи осей X/Y только на полном
+        // экране — на карточках каждая точка высоты на счету
+        chart.axisLabels = true
+        chart.xLabel = context.getString(R.string.axis_time_label)
         chart.zoomEnabled = true
         chart.onZoomChanged = { zoomed ->
             resetChip?.visibility = if (zoomed) View.VISIBLE else View.GONE
@@ -140,22 +144,51 @@ class FullscreenChartDialog(
             )
         }
         root.addView(tvValue)
-        chart.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        // Легенда и время ПОВЕРХ графика в верхней части (как legend box в
+        // matplotlib): отдельные строки под графиком убраны — место отдаётся
+        // кривым. Плашки с фоном поверхности темы, жесты графика не
+        // перехватывают (view-ы не clickable)
+        val chartWrap = android.widget.FrameLayout(context)
+        chart.layoutParams = android.widget.FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ).apply { setMargins(0, dp(6), 0, dp(6)) }
-        root.addView(chart)
-        root.addView(legendRow)
+        chartWrap.addView(chart)
+        val overlayBg = android.graphics.drawable.GradientDrawable().apply {
+            setColor(if (darkTheme) 0xD9101216.toInt() else 0xD9F7F9F5.toInt())
+            cornerRadius = dp(8).toFloat()
+        }
+        legendRow.apply {
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            ).apply { setMargins(dp(10), dp(6), dp(10), 0) }
+            background = overlayBg
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            visibility = View.GONE
+        }
+        chartWrap.addView(legendRow)
+        tvTime.apply {
+            textSize = 13f
+            setTextColor(textSecondary)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(if (darkTheme) 0xD9101216.toInt() else 0xD9F7F9F5.toInt())
+                cornerRadius = dp(8).toFloat()
+            }
+            setPadding(dp(8), dp(2), dp(9), dp(2))
+            layoutParams = android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END
+            ).apply { setMargins(0, dp(10), dp(10), 0) }
+            visibility = View.GONE
+        }
+        chartWrap.addView(tvTime)
+        root.addView(chartWrap, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+        ))
         chipsRow.layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { setMargins(0, dp(10), 0, dp(6)) }
         root.addView(chipsRow)
-        tvTime.apply {
-            textSize = 13f
-            gravity = Gravity.END
-            setPadding(0, dp(4), 0, 0)
-            setTextColor(textSecondary)
-        }
-        root.addView(tvTime)
         return root
     }
 
@@ -189,6 +222,7 @@ class FullscreenChartDialog(
         )
         chart.showScale = panel.chartShowScale
         chart.unitSuffix = panel.unitSuffix
+        chart.yLabel = panel.unitSuffix
         // Динамический цвет линии по значению — только у ОДИНОЧНОГО графика.
         // У мультиграфика линии всегда цветами своих серий (персональные цвета
         // из редактора; динамическая раскраска здесь не применяется)
@@ -284,11 +318,15 @@ class FullscreenChartDialog(
             multi.values.maxOfOrNull { it.lastOrNull()?.t ?: 0L } ?: panel.lastTime
         else single.lastOrNull()?.t ?: panel.lastTime
         tvTime.text = if (lastT > 0) fmt.format(java.util.Date(lastT)) else ""
+        // пустая плашка времени не рисуется
+        tvTime.visibility = if (lastT > 0) View.VISIBLE else View.GONE
     }
 
     private fun buildLegend() {
         legendRow.removeAllViews()
         legendRow.orientation = LinearLayout.VERTICAL
+        // плашка легенды поверх графика: без серий прячем целиком
+        legendRow.visibility = View.GONE
         panel.series.forEachIndexed { i, s ->
             if (s.topic.isBlank() && s.label.isBlank()) return@forEachIndexed
             val row = LinearLayout(context).apply {
@@ -307,7 +345,8 @@ class FullscreenChartDialog(
             }
             row.addView(dot)
             row.addView(TextView(context).apply {
-                // номер серии — соответствие подсказке крестовины («1. …»)
+                // номер серии — соответствие подсказке крестовины («1. …»).
+                // Значения в легенде не дублируются: их показывает крестовина
                 val many = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1
                 text = (if (many) "${i + 1}. " else "") +
                     s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
@@ -318,20 +357,20 @@ class FullscreenChartDialog(
                 // светлый, текст по умолчанию был почти не виден
                 setTextColor(textPrimary)
             })
-            multi[i]?.lastOrNull()?.let { p ->
-                row.addView(TextView(context).apply {
-                    text = "  " + fmtValue(p.v) + panel.unitSuffix
-                    textSize = 16f
-                    setTypeface(typeface, Typeface.BOLD)
-                    setTextColor(parseColor(s.color, ChartView.DEFAULT_COLOR))
-                    layoutParams = LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply { marginStart = dp(10) }
-                })
-            }
             legendRow.addView(row)
         }
+        if (legendRow.childCount > 0) {
+            legendRow.visibility = View.VISIBLE
+            // зона плашки легенды в координатах графика: пузырь перекрестия
+            // сдвигается в свободную зону рядом и не накрывает легенду
+            legendRow.post {
+                if (legendRow.visibility == View.VISIBLE)
+                    chart.overlayTopRect = android.graphics.RectF(
+                        legendRow.x, legendRow.y,
+                        legendRow.x + legendRow.width, legendRow.y + legendRow.height
+                    )
+            }
+        } else chart.overlayTopRect.setEmpty()
     }
 
     private fun fmtValue(v: Float): String {

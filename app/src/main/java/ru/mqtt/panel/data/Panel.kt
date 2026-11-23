@@ -84,6 +84,9 @@ data class Panel(
     var colorMax: String = "",
     // период истории графика Народмона: day / week / month / year
     var historyPeriod: String? = "day",
+    // демо-панель: график с синтетической историей (чипы периодов работают
+    // без Народмона/Grafana — история генерируется DemoHistory)
+    var demo: Boolean = false,
     // время последнего принятого значения (runtime: в конфиг не пишется,
     // хранится в runtime-<id>.json вместе с историей графиков)
     var lastTime: Long = 0,

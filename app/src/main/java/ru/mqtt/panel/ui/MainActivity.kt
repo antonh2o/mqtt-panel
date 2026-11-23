@@ -29,6 +29,13 @@ import ru.mqtt.panel.mqtt.mqttConfigChanged
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /** Проверка обновлений — один раз за ЗАПУСК приложения: активность
+         *  пересоздаётся на повороте экрана/смене темы, а проверка не повторяется */
+        private var startupUpdateCheckDone = false
+    }
+
+
     private lateinit var binding: ActivityMainBinding
     lateinit var repository: AppRepository
         private set
@@ -392,12 +399,13 @@ class MainActivity : AppCompatActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(
             statusReceiver, IntentFilter(MqttService.BROADCAST_STATUS)
         )
-        // авто-проверка обновлений не чаще раза в 12 часов;
-        // store-сборка не проверяет обновления сама — их ставит магазин
+        // проверка новой версии ПРИ ЗАПУСКЕ приложения: если на GitHub лежит
+        // более свежая — диалог «обновиться?» (предложение, не автозагрузка).
+        // Раньше проверка была не чаще раза в 12 часов — новая версия могла
+        // ждать сутки. Store-сборка не проверяет обновления — их ставит магазин
         val prefs = getSharedPreferences("ui", MODE_PRIVATE)
-        val last = prefs.getLong("last_update_check", 0L)
-        if (!BuildConfig.STORE_BUILD && System.currentTimeMillis() - last > 12 * 3600_000L) {
-            prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply()
+        if (!BuildConfig.STORE_BUILD && !startupUpdateCheckDone) {
+            startupUpdateCheckDone = true
             checkForUpdates(manual = false)
         }
         // Первый запуск с пустой конфигурацией → демо-дашборд на публичном
