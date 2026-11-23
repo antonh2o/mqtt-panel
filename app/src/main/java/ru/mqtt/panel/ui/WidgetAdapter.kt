@@ -448,6 +448,9 @@ class WidgetAdapter(
         private val ledDot: View? = view.findViewById(R.id.led_dot)
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
         private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
+        /** Контейнер «легенда + время» (мультиграфик): время выводится ПОД
+         *  легендой одним блоком, чтобы не наезжало на неё справа */
+        private val overlayBox: android.widget.LinearLayout? = view.findViewById(R.id.chart_overlay_box)
         /** Отложенное скрытие легенды мультиграфика (3 с после показания) */
         private var legendHideRun: Runnable? = null
         private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
@@ -554,17 +557,30 @@ class WidgetAdapter(
             return tv.data
         }
 
-        /** Меню панели: редактировать / клонировать / удалить */
+        /** Меню панели: редактировать / клонировать / удалить.
+         *  setItems() не показывает иконки, поэтому список — свой адаптер
+         *  по layout item_menu_action (иконка + подпись). */
         private fun showMenu(anchor: View, panel: Panel) {
-            com.google.android.material.dialog.MaterialAlertDialogBuilder(anchor.context)
+            val ctx = anchor.context
+            val titles = arrayOf(
+                ctx.getString(R.string.edit_panel),
+                ctx.getString(R.string.duplicate_panel),
+                ctx.getString(R.string.delete_panel)
+            )
+            val icons = intArrayOf(R.drawable.ic_edit, R.drawable.ic_duplicate, R.drawable.ic_delete)
+            val adapter = object : android.widget.ArrayAdapter<String>(
+                ctx, R.layout.item_menu_action, R.id.menu_title, titles
+            ) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                    val v = super.getView(position, convertView, parent)
+                    v.findViewById<android.widget.ImageView>(R.id.menu_icon).setImageResource(icons[position])
+                    return v
+                }
+            }
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(ctx)
                 .setTitle(panel.name)
-                .setItems(
-                    arrayOf(
-                        anchor.context.getString(R.string.edit_panel),
-                        anchor.context.getString(R.string.duplicate_panel),
-                        anchor.context.getString(R.string.delete_panel)
-                    )
-                ) { _, which ->
+                .setAdapter(adapter) { dialog, which ->
+                    dialog.dismiss()
                     when (which) {
                         0 -> onEdit(panel)
                         1 -> onDuplicate(panel)
@@ -992,40 +1008,48 @@ class WidgetAdapter(
             // Легенда — плашка по центру верха поля графика; видна при касании
             // графика и 3 с ПОСЛЕ ПОСЛЕДНЕГО показания (окно продлевается
             // каждым новым значением — при частых показаниях легенда просто
-            // не гаснет). Появление/скрытие — плавным угасанием 180 мс,
-            // чтобы не мигала. Время передачи лежит в той же зоне справа
-            // и гаснет, пока легенда видна: обе плашки — «свежесть данных»
+            // не гаснет). Появление/скрытие — плавным угасанием 180 мс.
+            // Время передачи — НИЖНЯЯ СТРОКА ЭТОЙ ЖЕ плашки (общий фон у
+            // chart_overlay_box): отдельной плашки времени на мультиграфике
+            // нет, поэтому гаснет и появляется оно вместе с легендой.
+            // Скрываем блок ТОЛЬКО прозрачностью, не переводя в GONE: иначе
+            // при касании геометрия ещё не успела пересчитаться (post), и
+            // пузырь перекрестия наезжал на появившуюся легенду. С alpha=0
+            // layout живёт всегда, и зона для перекрестия известна заранее.
             var legendByTouch = false
-            fun applyLegendVis(animated: Boolean = true) {
-                val lg = legend ?: return
-                if (lg.childCount == 0) {
-                    lg.visibility = View.GONE
+            fun legendShouldShow(): Boolean {
+                val until = multiLegendUntil[panel.id] ?: 0L
+                return legendByTouch || until > System.currentTimeMillis()
+            }
+            fun refreshOverlayRect(show: Boolean) {
+                val box = overlayBox ?: return
+                // Пустая зона при скрытой плашке: иначе перекрестие зря
+                // уползало бы из невидимой области. Геометрия при этом
+                // валидна всегда — блок не переводится в GONE
+                if (!show || box.visibility != View.VISIBLE || box.height == 0) {
                     cv.overlayTopRect.setEmpty()
                     return
                 }
-                lg.visibility = View.VISIBLE
-                val until = multiLegendUntil[panel.id] ?: 0L
-                val show = legendByTouch || until > System.currentTimeMillis()
-                val dur = if (animated) 180L else 0L
-                lg.animate().cancel()
-                lg.animate().alpha(if (show) 0.88f else 0f).setDuration(dur).start()
-                if (show) {
-                    // пузырь перекрестия не должен уйти под плашку
-                    lg.post {
-                        if (lg.visibility == View.VISIBLE)
-                            cv.overlayTopRect = android.graphics.RectF(
-                                lg.x, lg.y, lg.x + lg.width, lg.y + lg.height
-                            )
-                    }
-                    tvTime?.animate()?.cancel()
-                    tvTime?.animate()?.alpha(0f)?.setDuration(dur)?.start()
-                } else {
+                cv.overlayTopRect = android.graphics.RectF(
+                    box.x, box.y, box.x + box.width, box.y + box.height
+                )
+            }
+            fun applyLegendVis(animated: Boolean = true) {
+                val box = overlayBox ?: return
+                if (legend?.childCount == 0) {
+                    box.visibility = View.GONE
                     cv.overlayTopRect.setEmpty()
-                    val showT = !locked && panel.showTime != false && panel.lastTime > 0
-                    tvTime?.visibility = if (showT) View.VISIBLE else View.GONE
-                    tvTime?.animate()?.cancel()
-                    tvTime?.animate()?.alpha(1f)?.setDuration(dur)?.start()
+                    return
                 }
+                box.visibility = View.VISIBLE
+                val show = legendShouldShow()
+                val dur = if (animated) 180L else 0L
+                box.animate().cancel()
+                box.animate().alpha(if (show) 0.88f else 0f).setDuration(dur).start()
+                refreshOverlayRect(show)
+                // строки легенды с значениями шире одних подписей — ширина
+                // плашки меняется после layout, зону пересчитываем ещё раз
+                box.post { refreshOverlayRect(legendShouldShow()) }
             }
             fun armLegendHide() {
                 legendHideRun?.let { legend?.removeCallbacks(it) }
@@ -1077,13 +1101,35 @@ class WidgetAdapter(
                     setColor(color)
                 }
                 row.addView(dot)
-                // Одна строка на серию: «1. Подпись» — только имя серии.
-                // Значения в легенде не дублируются: их показывают крестовина
-                // и большое значение карточки
+                // Одна строка на серию: «1. Подпись 21.4 °C» — значение тем же
+                // цветом, что и линия. На полном экране значений в легенде нет
+                // (там их показывает крупное число сверху), на карточке —
+                // это единственный показ текущих значений серий.
+                // Точки истории УЖЕ домножены на factor (см. applyMultiValue),
+                // поэтому множитель здесь не применяем — только точность.
+                val value = chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let {
+                    " " + legendValue(it.v.toString(), panel) + panel.unitSuffix
+                } ?: panel.lastValue.takeIf { it.isNotBlank() && i == (multiLastSeries[panel.id] ?: 0) }
+                    ?.let { " $it${panel.unitSuffix}" }
+                    ?: ""
+                val text = android.text.SpannableStringBuilder()
                 val numPrefix = if (visible > 1) "${i + 1}. " else ""
                 val label = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
+                text.append(label)
+                if (value.isNotEmpty()) {
+                    val start = text.length
+                    text.append(value)
+                    text.setSpan(
+                        android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                        start, text.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                    text.setSpan(
+                        android.text.style.ForegroundColorSpan(color),
+                        start, text.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
                 val tv = android.widget.TextView(ctx).apply {
-                    text = label
+                    setText(text)
                     textSize = 12f
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1091,6 +1137,16 @@ class WidgetAdapter(
                 row.addView(tv)
                 lg.addView(row)
             }
+        }
+
+        /** Число для легенды: точность панели, без повторного множителя
+         *  (точки истории уже домножены на factor). Без явной точности —
+         *  компактный вывод: два знака, хвостовые нули срезаны. */
+        private fun legendValue(raw: String, panel: Panel): String {
+            if (panel.decimals != null) return ru.mqtt.panel.data.ValueFormat.apply(raw, 1.0, panel.decimals)
+            val s = String.format(Locale.US, "%.2f", parseNumber(raw) ?: return raw)
+                .trimEnd('0').trimEnd('.')
+            return if (s.isEmpty() || s.endsWith(".")) s + "0" else s
         }
 
         private fun parseColor(hex: String, fallback: Int): Int = try {

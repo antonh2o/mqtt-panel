@@ -77,11 +77,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
-            <!-- Легенда: цветной кружок + подпись и значение для каждой серии.
-                 По центру верха; видна при касании графика и 3 с после прихода
-                 показаний (правило в WidgetAdapter), остальное время скрыта -->
+            <!-- Одна общая плашка сверху по центру: строки серий и ПОД НИМИ
+                 время последней передачи. Фон и отступы — на контейнере, а не
+                 на элементах: время — часть легенды, отдельной плашки времени
+                 на мультиграфике больше нет -->
             <LinearLayout
-                android:id="@+id/chart_legend"
+                android:id="@+id/chart_overlay_box"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="top|center_horizontal"
@@ -89,20 +90,30 @@
                 android:layout_marginStart="8dp"
                 android:layout_marginEnd="8dp"
                 android:orientation="vertical"
+                android:gravity="center_horizontal"
                 android:background="@drawable/legend_overlay_bg"
                 android:paddingStart="7dp"
                 android:paddingTop="3dp"
                 android:paddingEnd="7dp"
                 android:paddingBottom="4dp"
-                android:alpha="0.88" />
+                android:alpha="0.88">
 
-            <include
-                layout="@layout/view_card_time_overlay"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|end"
-                android:layout_marginTop="2dp"
-                android:layout_marginEnd="2dp" />
+                <!-- Легенда: цветной кружок + подпись и значение для каждой серии.
+                     Видна при касании графика и 3 с после прихода
+                     показаний (правило в WidgetAdapter), остальное время скрыта -->
+                <LinearLayout
+                    android:id="@+id/chart_legend"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <include
+                    layout="@layout/view_card_time_plain"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal" />
+
+            </LinearLayout>
 
         </FrameLayout>
 

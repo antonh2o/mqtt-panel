@@ -913,6 +913,19 @@ class ChartView @JvmOverloads constructor(
                 else -> by = overlayTopRect.bottom + 2f * density
             }
         }
+        // ФИНАЛЬНАЯ ГАРАНТИЯ: пузырь обязан оставаться ПОВЕРХУ поля, но не
+        // пересекать плашку легенды. Если после сдвига/опускания пересечение
+        // всё же осталось (узкое поле, широкая плашка) — опускаем под плашку,
+        // а по горизонтали сжимаем к свободному краю; за пределы поля не
+        // выпускаем ни по X, ни по Y
+        if (!overlayTopRect.isEmpty) {
+            if (by < overlayTopRect.bottom &&
+                bx < overlayTopRect.right && bx + boxW > overlayTopRect.left
+            ) by = overlayTopRect.bottom + 2f * density
+            val maxBy = h - boxH - 1f
+            if (by > maxBy) by = maxBy.coerceAtLeast(0f)
+            bx = bx.coerceIn(gutter, max(gutter, gutter + w - boxW))
+        }
         val r = 4f * density * ts
         canvas.drawRoundRect(bx, by, bx + boxW, by + boxH, r, r, bubblePaint)
         bubbleTextPaint.textAlign = Paint.Align.LEFT
