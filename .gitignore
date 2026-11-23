@@ -21,6 +21,7 @@ keystore.properties
 
 # Локальный журнал проекта (не для публичного репозитория)
 KODA.md
+FIXPLAN.md
 
 # Прочее
 *.log
