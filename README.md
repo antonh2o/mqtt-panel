@@ -14,25 +14,34 @@ MQTT+ Panel превращает Android-смартфон или планшет 
 (работает без своего брокера и ключей).
 
 <p align="center">
-  <img src="screenshots/demo-first-run.png" width="32%">
-  <img src="screenshots/demo-dark.png" width="32%">
-  <img src="screenshots/crosshair.png" width="32%">
+  <img src="screenshots/demo-first-run.png" width="38%"><br>
+  <b>Демо-дашборд при первом запуске: 11 типов виджетов с живыми данными</b>
 </p>
-
-Главный дашборд · тёмная тема · крестовина: время и значение под пальцем
 
 <p align="center">
-  <img src="screenshots/lock-mode.png" width="49%">
-  <img src="screenshots/mqtt-share.png" width="49%">
+  <img src="screenshots/demo-dark.png" width="38%"><br>
+  <b>Тёмная тема</b>
 </p>
-
-Заблокированная раскладка (плотная сетка, только данные) · настройки обмена конфигом через MQTT
 
 <p align="center">
-  <img src="screenshots/fullscreen-chips.png" width="90%">
+  <img src="screenshots/lock-mode.png" width="38%"><br>
+  <b>Заблокированная раскладка: плотная сетка, только данные</b>
 </p>
 
-Полноэкранный график: периоды переключаются чипами (сутки → неделя → месяц)
+<p align="center">
+  <img src="screenshots/mqtt-share.png" width="42%"><br>
+  <b>Настройки обмена конфигом через MQTT</b>
+</p>
+
+<p align="center">
+  <img src="screenshots/crosshair.png" width="38%"><br>
+  <b>Крестовина: время и значение под пальцем</b>
+</p>
+
+<p align="center">
+  <img src="screenshots/fullscreen-chips.png" width="90%"><br>
+  <b>Полноэкранный график: периоды переключаются чипами 1d → 1w → 1m</b>
+</p>
 
 ## Возможности
 
