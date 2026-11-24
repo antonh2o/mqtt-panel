@@ -161,11 +161,13 @@ class ConnectionListFragment : Fragment() {
             .setTitle(R.string.import_from)
             .setItems(arrayOf(
                 getString(R.string.import_source_file),
-                getString(R.string.import_source_yandex)
+                getString(R.string.import_source_yandex),
+                getString(R.string.mqtt_share_import_source)
             )) { _, which ->
                 when (which) {
                     0 -> (requireActivity() as? MainActivity)?.showImportMenu()
                     1 -> (requireActivity() as? MainActivity)?.yandexRestore()
+                    2 -> (requireActivity() as? MainActivity)?.importConfigFromMqtt()
                 }
             }
             .setNegativeButton(R.string.cancel, null)
@@ -178,11 +180,13 @@ class ConnectionListFragment : Fragment() {
             .setTitle(R.string.export_to)
             .setItems(arrayOf(
                 getString(R.string.export_target_file),
-                getString(R.string.export_target_yandex)
+                getString(R.string.export_target_yandex),
+                getString(R.string.mqtt_share_export_target)
             )) { _, which ->
                 when (which) {
                     0 -> (requireActivity() as? MainActivity)?.exportSettings()
                     1 -> (requireActivity() as? MainActivity)?.yandexBackup()
+                    2 -> (requireActivity() as? MainActivity)?.publishConfigViaMqtt()
                 }
             }
             .setNegativeButton(R.string.cancel, null)

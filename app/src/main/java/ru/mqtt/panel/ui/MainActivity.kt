@@ -16,6 +16,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import ru.mqtt.panel.BuildConfig
 import ru.mqtt.panel.data.YandexDisk
 import com.google.gson.Gson
+import ru.mqtt.panel.data.MqttConnection
 import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
@@ -171,6 +172,10 @@ class MainActivity : AppCompatActivity() {
             }
             R.id.action_ya_settings -> { yandexSettings(); return true }
             R.id.action_send_log -> { shareLog(); return true }
+            R.id.action_mqtt_share -> {
+                if (!BuildConfig.STORE_BUILD) showMqttShareSettings()
+                return true
+            }
             else -> return super.onOptionsItemSelected(item)
         }
         ThemePrefs.save(this, mode)
@@ -279,6 +284,199 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(intent)
         }
+    }
+
+
+    // --- Настройки через MQTT: публикация/импорт конфига дашборда ---
+
+    private val sharePrefs by lazy { getSharedPreferences("mqtt_share", MODE_PRIVATE) }
+
+    /** ID этой установки: часть топика per-device и признак «своих» сообщений */
+    private fun shareDevId(): String {
+        val prefs = getSharedPreferences("mqtt_share", MODE_PRIVATE)
+        return prefs.getString("dev_id", null) ?: run {
+            val id = android.provider.Settings.Secure.getString(
+                contentResolver, android.provider.Settings.Secure.ANDROID_ID
+            ).takeIf { !it.isNullOrBlank() } ?: "dev-" + java.util.UUID.randomUUID().toString().take(8)
+            prefs.edit().putString("dev_id", id).apply()
+            id
+        }
+    }
+
+    /** Включённое MQTT-подключение: через его брокера идёт публикация/сбор */
+    private suspend fun firstEnabledMqtt(): MqttConnection? {
+        val list: List<MqttConnection> = repository.getConnections()
+        return list.firstOrNull { it.enabled != false && !it.narodmon }
+    }
+
+    private fun showMqttShareSettings() {
+        val root = LayoutInflater.from(this)
+            .inflate(R.layout.dialog_mqtt_share, null)
+        val rgEnc = root.findViewById<android.widget.RadioGroup>(R.id.rg_enc)
+        val rbAes = root.findViewById<android.widget.RadioButton>(R.id.rb_aes)
+        val etPass = root.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.et_passphrase)
+        val rgTopic = root.findViewById<android.widget.RadioGroup>(R.id.rg_topic)
+        val rgPub = root.findViewById<android.widget.RadioGroup>(R.id.rg_pub)
+
+        val enc = sharePrefs.getString("enc", "nosecrets") ?: "nosecrets"
+        (if (enc == "aes") rbAes else root.findViewById<android.widget.RadioButton>(R.id.rb_nosecrets)).isChecked = true
+        etPass.setText(sharePrefs.getString("pass", ""))
+        val topicMode = sharePrefs.getString("topic", "perdev") ?: "perdev"
+        root.findViewById<android.widget.RadioButton>(
+            if (topicMode == "common") R.id.rb_common else R.id.rb_perdev
+        ).isChecked = true
+        val pub = sharePrefs.getString("pub", "manual") ?: "manual"
+        root.findViewById<android.widget.RadioButton>(
+            if (pub == "auto") R.id.rb_auto else R.id.rb_manual
+        ).isChecked = true
+        // пароль нужен только для AES
+        rgEnc.setOnCheckedChangeListener { _, checkedId ->
+            etPass.visibility =
+                if (checkedId == R.id.rb_aes) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        etPass.visibility = if (enc == "aes") android.view.View.VISIBLE else android.view.View.GONE
+
+        // сохранение настроек из полей диалога; true — поля корректны
+        fun saveForm(): Boolean {
+            val encChosen = if (rgEnc.checkedRadioButtonId == R.id.rb_aes) "aes" else "nosecrets"
+            val passChosen = etPass.text.toString()
+            if (encChosen == "aes" && passChosen.isBlank()) {
+                Toast.makeText(this, R.string.mqtt_share_pass_needed, Toast.LENGTH_LONG).show()
+                return false
+            }
+            sharePrefs.edit()
+                .putString("enc", encChosen)
+                .putString("pass", passChosen)
+                .putString("topic", if (rgTopic.checkedRadioButtonId == R.id.rb_common) "common" else "perdev")
+                .putString("pub", if (rgPub.checkedRadioButtonId == R.id.rb_auto) "auto" else "manual")
+                .apply()
+            return true
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.mqtt_share_settings)
+            .setView(root)
+            .setPositiveButton(R.string.save) { _, _ -> saveForm() }
+            .setNeutralButton(R.string.mqtt_share_publish) { _, _ ->
+                if (saveForm()) publishConfigViaMqtt()
+            }
+            // третий кнопкой — импорт из MQTT (настройки сохраняются тоже)
+            .setNegativeButton(R.string.mqtt_share_import) { _, _ ->
+                if (saveForm()) importConfigFromMqtt()
+            }
+            .show()
+    }
+
+    /** Топик публикации по настройке: per-device или общий */
+    private fun shareTopic(): String {
+        val devId = shareDevId()
+        return if ((sharePrefs.getString("topic", "perdev") ?: "perdev") == "common")
+            ru.mqtt.panel.data.MqttConfigShare.TOPIC_COMMON
+        else ru.mqtt.panel.data.MqttConfigShare.topicPerDevice(devId)
+    }
+
+    /** Опубликовать текущий конфиг по настройкам (ретроспективно — retained) */
+    fun publishConfigViaMqtt() {
+        lifecycleScope.launch {
+            val conn = firstEnabledMqtt()
+            if (conn == null) {
+                Toast.makeText(this@MainActivity, R.string.mqtt_share_need_conn, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val enc = sharePrefs.getString("enc", "nosecrets") ?: "nosecrets"
+            val pass = sharePrefs.getString("pass", "") ?: ""
+            val json = repository.exportConfig()
+            val safe = if (enc == ru.mqtt.panel.data.MqttConfigShare.ENC_AES) json
+                else ru.mqtt.panel.data.MqttConfigShare.stripSecrets(json)
+            val payload = ru.mqtt.panel.data.MqttConfigShare.buildEnvelope(
+                safe, shareDevId(), android.os.Build.MODEL, enc, pass)
+            val topic = shareTopic()
+            val ok = ru.mqtt.panel.data.MqttConfigShare.publishViaMqtt(conn, topic, payload)
+            if (ok.isSuccess) {
+                sharePrefs.edit()
+                    .putString("last_pub_hash", json.hashCode().toString()).apply()
+                Toast.makeText(this@MainActivity, R.string.mqtt_share_published, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity,
+                    getString(R.string.mqtt_share_publish_failed, "${ok.exceptionOrNull()}"),
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    /** Импорт из MQTT: сбор 10 с → список найденных конфигов → применение */
+    fun importConfigFromMqtt() {
+        lifecycleScope.launch {
+            val conn = firstEnabledMqtt()
+            if (conn == null) {
+                Toast.makeText(this@MainActivity, R.string.mqtt_share_need_conn, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            Toast.makeText(this@MainActivity,
+                getString(R.string.mqtt_share_found, 0), Toast.LENGTH_SHORT).show()
+            val received = ru.mqtt.panel.data.MqttConfigShare.collectConfigs(conn, 10)
+                .filter { (topic, _) -> !topic.contains(shareDevId()) }
+            if (received.isEmpty()) {
+                Toast.makeText(this@MainActivity,
+                    R.string.mqtt_share_none_found, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            Toast.makeText(this@MainActivity,
+                getString(R.string.mqtt_share_found, received.size), Toast.LENGTH_SHORT).show()
+            // уникальные источники: последний конверт от каждого устройства
+            val bySource = LinkedHashMap<String, String>()
+            received.forEach { (_, payload) -> bySource[ru.mqtt.panel.data.MqttConfigShare.envelopeFrom(payload).first] = payload }
+            val items = bySource.entries.map { (from, payload) ->
+                val ts = java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(ru.mqtt.panel.data.MqttConfigShare.envelopeFrom(payload).second))
+                "$from · $ts"
+            }
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.mqtt_share_import)
+                .setItems(items.toTypedArray()) { _, which ->
+                    val payload = bySource.values.toList()[which]
+                    applySharedConfig(payload)
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /** Применить полученный конверт; AES — пароль сохранённый, при ошибке — запрос */
+    private fun applySharedConfig(payload: String) {
+        val env = runCatching {
+            com.google.gson.Gson().fromJson(payload, com.google.gson.JsonObject::class.java)
+        }.getOrNull() ?: return
+        val enc = env.get("enc")?.asString ?: "none"
+        fun importWith(pass: String) {
+            lifecycleScope.launch {
+                val json = ru.mqtt.panel.data.MqttConfigShare.parseEnvelope(payload, pass)
+                if (json.isFailure) {
+                    Toast.makeText(this@MainActivity,
+                        R.string.mqtt_share_wrong_pass, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val ok = repository.importConfig(json.getOrThrow())
+                Toast.makeText(this@MainActivity,
+                    if (ok) R.string.mqtt_share_imported else R.string.import_error,
+                    Toast.LENGTH_LONG).show()
+                if (ok) recreate()
+            }
+        }
+        if (enc != "aes") { importWith(""); return }
+        // сначала сохранённый пароль; не подошёл — запросить ввод
+        val saved = sharePrefs.getString("pass", "") ?: ""
+        val json = ru.mqtt.panel.data.MqttConfigShare.parseEnvelope(payload, saved)
+        if (json.isSuccess) { importWith(saved); return }
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.mqtt_share_passphrase)
+            .setView(input)
+            .setPositiveButton(R.string.save) { _, _ -> importWith(input.text.toString()) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     /** Мегабайты для строки прогресса скачивания */
@@ -392,6 +590,33 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         handleYandexOAuth(intent.data)
+    }
+
+    /**
+     * Авто-публикация конфига по настройке «автоматически»: при уходе
+     * приложения в фон, если конфиг изменился с прошлой публикации
+     * (сравнение хеша). Ручной режим не трогаем.
+     */
+    override fun onStop() {
+        super.onStop()
+        if (BuildConfig.STORE_BUILD) return
+        val prefs = getSharedPreferences("mqtt_share", MODE_PRIVATE)
+        if ((prefs.getString("pub", "manual") ?: "manual") != "auto") return
+        lifecycleScope.launch {
+            val conn = firstEnabledMqtt() ?: return@launch
+            val json = repository.exportConfig()
+            val hash = json.hashCode().toString()
+            if (hash == prefs.getString("last_pub_hash", null)) return@launch
+            val enc = prefs.getString("enc", "nosecrets") ?: "nosecrets"
+            val pass = prefs.getString("pass", "") ?: ""
+            val safe = if (enc == ru.mqtt.panel.data.MqttConfigShare.ENC_AES) json
+                else ru.mqtt.panel.data.MqttConfigShare.stripSecrets(json)
+            val payload = ru.mqtt.panel.data.MqttConfigShare.buildEnvelope(
+                safe, shareDevId(), android.os.Build.MODEL, enc, pass)
+            val topic = shareTopic()
+            ru.mqtt.panel.data.MqttConfigShare.publishViaMqtt(conn, topic, payload)
+                .onSuccess { prefs.edit().putString("last_pub_hash", hash).apply() }
+        }
     }
 
     override fun onResume() {

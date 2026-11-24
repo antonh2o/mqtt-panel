@@ -27,6 +27,12 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_mqtt_share"
+        android:icon="@drawable/ic_share"
+        android:title="@string/mqtt_share_settings"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_ya_settings"
         android:icon="@drawable/ic_ya_cloud"
         android:title="@string/yandex_settings"
