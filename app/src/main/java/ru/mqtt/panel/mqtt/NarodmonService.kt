@@ -49,6 +49,12 @@ class NarodmonService : Service() {
         const val ACTION_SYNC_PANELS = "ru.mqtt.panel.NM_SYNC_PANELS"
         const val EXTRA_CONNECTION = "connection"
         const val EXTRA_PANELS = "panels"
+        /** Список ID датчиков, помеченных звёздочкой на платформе (fav=1) */
+        const val BROADCAST_FAVORITES = "ru.mqtt.panel.NM_FAVORITES"
+        const val EXTRA_FAVORITE_IDS = "favoriteIds"
+        /** Устройство для sensorsOnDevice найдено, датчик панели — там:
+         *  список пар «sensorId → deviceName» (диагностика «датчика нет в my=1») */
+        const val EXTRA_DEVICE_SOURCES = "deviceSources"
 
         @Volatile
         var connectionState: ConnectionState = ConnectionState.DISCONNECTED
@@ -157,8 +163,11 @@ class NarodmonService : Service() {
         scope.launch {
             try {
                 // один запрос на все свои датчики: sensorsNearby?my=1
-                // (sensorsValues на 06.11.2026 отдаёт 410 Gone — см. NarodmonApi)
-                val sensors = NarodmonApi.fetchOwnSensors(applicationContext, conn.apiKey)
+                // (sensorsValues на 06.11.2026 отдаёт 410 Gone — см. NarodmonApi).
+                // Берём и устройства: их id нужны для sensorsOnDevice, а fav=1
+                // у датчика — для фильтра «только избранное» в дашборде
+                val snapshot = NarodmonApi.fetchOwnSnapshot(applicationContext, conn.apiKey)
+                val sensors = supplementFromDevices(conn, snapshot)
                 deliver(conn, sensors)
             } catch (e: NarodmonApi.AuthRequiredException) {
                 // 401 «Авторизуйтесь»: сессия слетела на платформе (её сбрасывают,
@@ -211,6 +220,62 @@ class NarodmonService : Service() {
     /** Время последней попытки форс-логина — троттлинг повторных входов при 401 */
     private var lastForceLogon = 0L
 
+    /** Когда последний раз тянули sensorsOnDevice (доп. запрос к лимиту 3/мин) */
+    private var lastOnDeviceAt = 0L
+
+    /** Имена устройств, где нашли датчик панели — для журнала */
+    private val deviceSources = HashMap<Int, String>()
+
+    /**
+     * sensorsNearby?my=1 отдаёт только датчики СВОИХ устройств. Панель может
+     * быть настроена на чужой публичный датчик (или на свой, который платформа
+     * ещё не включила в «my») — тогда значение к нам не приходит вовсе.
+     * Для таких панелей тянем sensorsOnDevice по id устройств из этого же
+     * ответа: эндпоинт принимает список устройств и возвращает их датчики
+     * вместе с чужими публичными.
+     *
+     * Экономим лимит платформы (3 запроса/мин, история тоже их тратит):
+     * запрос делаем только если есть «пропавшие» панели и не чаще раза в 10 мин.
+     */
+    private suspend fun supplementFromDevices(
+        conn: MqttConnection, snapshot: NarodmonApi.Snapshot
+    ): List<NarodmonApi.NmSensor> {
+        val have = snapshot.sensors.associateBy { it.id }
+        val missing = panels.mapNotNull { p ->
+            val id = p.topicSubscribe.toIntOrNull() ?: return@mapNotNull null
+            if (have.containsKey(id)) null else id
+        }
+        if (missing.isEmpty() || snapshot.devices.isEmpty()) return snapshot.sensors
+        val now = System.currentTimeMillis()
+        if (now - lastOnDeviceAt < 10 * 60_000L) return snapshot.sensors
+        lastOnDeviceAt = now
+        return try {
+            // id устройств из «my»-ответа: среди них ищутся чужие публичные
+            val deviceIds = snapshot.devices.map { it.id }.filter { it != 0 }
+            val extra = NarodmonApi.sensorsOnDevice(applicationContext, conn.apiKey, deviceIds)
+            val merged = LinkedHashMap<Int, NarodmonApi.NmSensor>()
+            snapshot.sensors.forEach { merged[it.id] = it }
+            extra.filter { it.id != 0 && it.id in missing }.forEach { s ->
+                if (!merged.containsKey(s.id)) {
+                    merged[s.id] = s
+                    deviceSources[s.id] = snapshot.devices
+                        .firstOrNull { it.sensors.any { x -> x.id == s.id } }?.name ?: "?"
+                }
+            }
+            val found = extra.map { it.id }.filter { it in missing }
+            if (found.isNotEmpty()) {
+                ImportLog.write(applicationContext,
+                    "NARODMON sensorsOnDevice: датчики панелей найдены на устройствах: " +
+                        found.joinToString(", ") { "#$it (${deviceSources[it]})" })
+            }
+            merged.values.toList()
+        } catch (e: Exception) {
+            ImportLog.write(applicationContext,
+                "NARODMON sensorsOnDevice failed: ${e.javaClass.simpleName}: ${e.message}")
+            snapshot.sensors
+        }
+    }
+
     /** Разослать значения датчиков: общий код первого опроса и повтора после релога */
     private fun deliver(conn: MqttConnection, sensors: List<NarodmonApi.NmSensor>) {
         // Диагностика «значения не обновляются»: успешный опрос в журнал не
@@ -237,6 +302,10 @@ class NarodmonService : Service() {
         connectionState = ConnectionState.CONNECTED
         backoff = 1
         broadcastStatus(ConnectionState.CONNECTED)
+        // Избранное платформы (fav=1 в sensorsNearby) — в дашборд для звёздочек
+        // и фильтра «только избранное». Шлём всегда, даже пустым: пустой список
+        // означает «на платформе избранного нет», и локальные звёздочки надо снять
+        broadcastFavorites(sensors)
         val lm = LocalBroadcastManager.getInstance(this@NarodmonService)
         val msgs = mutableListOf<Triple<String, String, Long>>()
         withValue.forEach { s ->
@@ -305,6 +374,15 @@ class NarodmonService : Service() {
         // тот же broadcast, что и у MqttService: статусы видят оба экрана
         val intent = Intent(MqttService.BROADCAST_STATUS).apply {
             putExtra(MqttService.EXTRA_STATUS, state.name)
+        }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+    }
+
+    /** Рассказать дашборду, какие датчики на платформе в Избранном (fav=1) */
+    private fun broadcastFavorites(sensors: List<NarodmonApi.NmSensor>) {
+        val favIds = sensors.filter { it.fav == 1 }.map { it.id }
+        val intent = Intent(BROADCAST_FAVORITES).apply {
+            putExtra(EXTRA_FAVORITE_IDS, favIds.toIntArray())
         }
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }

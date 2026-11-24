@@ -40,7 +40,9 @@ object NarodmonApi {
         val name: String = "",
         val value: Double? = null,
         val time: Long = 0,
-        val unit: String = ""
+        val unit: String = "",
+        /** = 1 если датчик в Избранном пользователя */
+        @SerializedName("fav") val fav: Int = 0
     )
 
     /** Точка истории датчика: время в миллисекундах и значение */
@@ -52,8 +54,23 @@ object NarodmonApi {
     data class HistoryItem(val time: Long = 0, val value: Double? = null)
     data class HistoryResponse(val data: List<HistoryItem> = emptyList())
 
-    data class NmDevice(val sensors: List<NmSensor> = emptyList())
+    /**
+     * Устройство из sensorsNearby/sensorsOnDevice: id нужен для sensorsOnDevice,
+     * cmd=1 — устройством можно управлять (отправка команд).
+     */
+    data class NmDevice(
+        val id: Int = 0,
+        val name: String = "",
+        val my: Int = 0,
+        val cmd: Int = 0,
+        val sensors: List<NmSensor> = emptyList()
+    )
+
     data class DevicesResponse(val devices: List<NmDevice> = emptyList())
+
+    /** Снимок «своих»: и устройства, и их датчики одним разбором */
+    data class Snapshot(val devices: List<NmDevice> = emptyList(),
+                        val sensors: List<NmSensor> = emptyList())
 
     /** Конверт ошибок narodmon приходит статусом 200: {"error":..,"errno":..} */
     data class ErrorEnvelope(
@@ -108,6 +125,66 @@ object NarodmonApi {
         prefs.edit().putLong(KEY_LOGON_AT, System.currentTimeMillis()).apply()
     }
 
+    /**
+     * Регистрация в проекте по email или SMS (userLogon БЕЗ hash).
+     * По документации narodmon.ru/appdoc: «if hash is not specified, it is
+     * considered a request for registration in the Project by email/sms».
+     * Платформа высылает на email пароль; ответ — {uid, tz, login, vip}.
+     * email — логин участника (в проекте он и есть логин).
+     */
+    suspend fun registerByEmail(context: Context, apiKey: String, email: String): String {
+        if (apiKey.isBlank()) throw MissingApiKeyException()
+        if (email.isBlank()) throw IllegalStateException("Укажите email для регистрации")
+        val u = uuid(context)
+        val body = gson.toJson(mapOf("login" to email, "uuid" to u))
+        return withContext(Dispatchers.IO) { request(context, apiKey, "userLogon", body) }
+    }
+
+    /** Выход из аккаунта на этом uuid: приватные датчики снова недоступны.
+     *  Отменяет и суточную отметку логина, чтобы следующий вход состоялся. */
+    suspend fun logOut(context: Context, apiKey: String) {
+        withContext(Dispatchers.IO) {
+            request(context, apiKey, "userLogout")
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .remove(KEY_LOGON_AT).apply()
+        }
+    }
+
+    /**
+     * Избранное пользователя (userFavorites без параметров): ID датчиков.
+     * Требует userLogon — иначе платформа отвечает 401.
+     */
+    suspend fun favoriteSensorIds(context: Context, apiKey: String): List<Int> =
+        withContext(Dispatchers.IO) {
+            val json = request(context, apiKey, "userFavorites")
+            parseFavoriteIds(json)
+        }
+
+    /**
+     * Сохранить избранный список ЦЕЛИКОМ (userFavorites заменяет список).
+     * Пустой список = «очистить» — по документации шлётся [0], иначе платформа
+     * проигнорирует пустое поле sensors и избранное не снимется.
+     */
+    suspend fun saveFavoriteSensorIds(context: Context, apiKey: String, ids: List<Int>) {
+        withContext(Dispatchers.IO) {
+            request(context, apiKey, "userFavorites", favoritesBody(gson, uuid(context), ids))
+        }
+    }
+
+    /** Тело POST userFavorites: sensors=[...] (пусто → [0] = очистить).
+     *  Вынесено из suspend-метода — чистая функция, тестируется без Android */
+    internal fun favoritesBody(g: Gson, uuid: String, ids: List<Int>): String =
+        g.toJson(mapOf("sensors" to (if (ids.isEmpty()) listOf(0) else ids), "uuid" to uuid))
+
+    /** Разбор ответа userFavorites: sensors[].id (чистый JVM — для тестов) */
+    fun parseFavoriteIds(json: String): List<Int> {
+        errorEnvelope(json)?.let { throw envelopeException(it) }
+        return runCatching {
+            gson.fromJson(json, SensorsResponse::class.java)?.sensors
+                ?.map { it.id }?.filter { it != 0 } ?: emptyList()
+        }.getOrDefault(emptyList())
+    }
+
     /** Свои датчики (sensorsNearby?my=1): и опубликованные, и приватные — после логина */
     suspend fun sensorsNearby(context: Context, apiKey: String): List<NmSensor> =
         withContext(Dispatchers.IO) {
@@ -115,13 +192,25 @@ object NarodmonApi {
         }
 
     /**
-     * История датчика за сутки: sensorsHistory?id=…&period=day.
-     * Живой формат (06.11.2026): {"sensors":[метаданные c unit],"data":[{time (сек), value}]}.
-     * Возвращает точки с временем в миллисекундах.
+     * История датчика за период: sensorsHistory?id=…&period=…&offset=0.
+     * Периоды: hour, day, week, month, year.
      */
-    suspend fun sensorsHistory(context: Context, apiKey: String, id: Int, period: String = "day"): List<NmPoint> =
+    suspend fun sensorsHistory(context: Context, apiKey: String, id: Int, period: String = "day",
+                               offset: Int = 0): List<NmPoint> =
         withContext(Dispatchers.IO) {
-            parseHistory(request(context, apiKey, "sensorsHistory?id=$id&period=$period"))
+            parseHistory(request(context, apiKey, "sensorsHistory?id=$id&period=$period&offset=$offset"))
+        }
+
+    /**
+     * Датчики по ID устройств: sensorsOnDevice?devices=1,2.
+     * Возвращает тот же формат devices[].sensors[], что и sensorsNearby.
+     * Нужно когда датчик привязан к устройству, но ещё не появился в
+     * sensorsNearby (только что подключён, платформа не успела рассылать).
+     */
+    suspend fun sensorsOnDevice(context: Context, apiKey: String, deviceIds: List<Int>): List<NmSensor> =
+        withContext(Dispatchers.IO) {
+            val devicesParam = deviceIds.joinToString(",")
+            parseList(request(context, apiKey, "sensorsOnDevice?devices=$devicesParam"))
         }
 
     /** Единица платформы в привычный суффикс: «°» → «°C», остальное — как есть */
@@ -140,8 +229,15 @@ object NarodmonApi {
      * без значения (см. NarodmonService.diagnosePoll).
      */
     suspend fun fetchOwnSensors(context: Context, apiKey: String): List<NmSensor> =
+        fetchOwnSnapshot(context, apiKey).sensors
+
+    /**
+     * То же, что fetchOwnSensors, но с устройствами: id устройств нужны для
+     * sensorsOnDevice, а fav=1 у датчика — для фильтра «только избранное».
+     */
+    suspend fun fetchOwnSnapshot(context: Context, apiKey: String): Snapshot =
         withContext(Dispatchers.IO) {
-            parseList(request(context, apiKey, "sensorsNearby?my=1"))
+            parseSnapshot(request(context, apiKey, "sensorsNearby?my=1"))
         }
 
     // --- парсинг вынесен наружу для юнит-тестов (без Android-зависимостей) ---
@@ -150,18 +246,28 @@ object NarodmonApi {
      * sensorsNearby отдаёт датчики, вложенные в устройства (devices[].sensors[]),
      * поэтому понимаем оба конверта: по наличию ключа devices/sensors.
      */
-    fun parseList(json: String): List<NmSensor> {
+    fun parseList(json: String): List<NmSensor> = parseSnapshot(json).sensors
+
+    /**
+     * Полный разбор devices[]: устройства с id (для sensorsOnDevice) и их датчики.
+     * Плоский конверт {"sensors":[...]} даёт пустые devices.
+     */
+    fun parseSnapshot(json: String): Snapshot {
         errorEnvelope(json)?.let { throw envelopeException(it) }
         val obj = runCatching {
             gson.fromJson(json, com.google.gson.JsonObject::class.java)
-        }.getOrNull() ?: return emptyList()
-        val sensors = when {
-            obj.has("devices") -> gson.fromJson(obj, DevicesResponse::class.java)
-                ?.devices?.flatMap { it.sensors }
-            obj.has("sensors") -> gson.fromJson(obj, SensorsResponse::class.java)?.sensors
-            else -> null
+        }.getOrNull() ?: return Snapshot()
+        return when {
+            obj.has("devices") -> {
+                val devices = gson.fromJson(obj, DevicesResponse::class.java)?.devices.orEmpty()
+                Snapshot(devices = devices, sensors = devices.flatMap { it.sensors }.filter { it.id != 0 })
+            }
+            obj.has("sensors") -> {
+                val sensors = gson.fromJson(obj, SensorsResponse::class.java)?.sensors.orEmpty()
+                Snapshot(sensors = sensors.filter { it.id != 0 })
+            }
+            else -> Snapshot()
         }
-        return sensors.orEmpty().filter { it.id != 0 }
     }
 
     fun parseValues(json: String): Map<Int, Double> {

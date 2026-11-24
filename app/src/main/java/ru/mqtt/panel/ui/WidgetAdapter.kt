@@ -34,6 +34,8 @@ class WidgetAdapter(
     private val onDuplicate: (Panel) -> Unit,
     private val onPublish: (Panel, String) -> Unit,
     private val onDragStart: (RecyclerView.ViewHolder) -> Unit = {},
+    /** переключение избранного у narodmon-панели (пункт меню карточки) */
+    var onToggleFavorite: ((Panel) -> Unit)? = null,
     /** смена периода истории на narodmon-карточке графика (чипы 1d/1w/1m/1y) */
     var onChartPeriodSelected: ((Panel, String) -> Unit)? = null,
     /** Подключения с включённой Grafana — у их графиков видны чипы периодов */
@@ -41,6 +43,31 @@ class WidgetAdapter(
 ) : RecyclerView.Adapter<WidgetAdapter.BaseHolder>() {
 
     private val items = mutableListOf<Panel>()
+
+    /**
+     * Что реально показано на экране: items с учётом фильтра избранного.
+     * Элементы — ТЕ ЖЕ объекты, что и в items, поэтому обновление значения
+     * в items видно и здесь; позиции RecyclerView считаются от visible.
+     */
+    private val visible = mutableListOf<Panel>()
+
+    /** Фильтр «только избранное» (звёздочка в тулбаре дашборда Народмона) */
+    var favoritesOnly: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            rebuildVisible()
+        }
+
+    /** Позиция панели в видимом списке; -1 — скрыта фильтром */
+    private fun visibleIndex(panelId: Long): Int = visible.indexOfFirst { it.id == panelId }
+
+    /** Пересобрать видимый список и полностью обновить RecyclerView */
+    private fun rebuildVisible() {
+        visible.clear()
+        visible.addAll(if (favoritesOnly) items.filter { it.favorite } else items)
+        notifyDataSetChanged()
+    }
 
     /** panelId -> индекс серии, чьё значение пришло последним (цвет большого значения) */
     private val multiLastSeries = mutableMapOf<Long, Int>()
@@ -76,7 +103,7 @@ class WidgetAdapter(
         chartHistory.keys.retainAll(ids)
         chartMultiHistory.keys.retainAll { it.substringBefore(':').toLongOrNull() in ids }
         multiLastSeries.keys.retainAll(ids)
-        notifyDataSetChanged()
+        rebuildVisible()
     }
 
     /** Перезагрузка состава панелей с сохранением уже полученных значений */
@@ -93,23 +120,40 @@ class WidgetAdapter(
      *  заблокировало бы приём свежих сообщений (защита от откатов в applyValue) */
     fun submitFresh(list: List<Panel>) = submit(list.map { it.copy(lastValue = "", lastTime = 0) })
 
-    /** Перемещение карточки в режиме перемещения (drag & drop) */
+    /** Перемещение карточки в режиме перемещения (drag & drop).
+     *  from/to — позиции ВИДИМОГО списка (с учётом фильтра избранного). */
     fun moveItem(from: Int, to: Int) {
-        if (from == to || from !in items.indices || to !in items.indices) return
-        items.add(to, items.removeAt(from))
-        notifyItemMoved(from, to)
+        if (from == to || from !in visible.indices || to !in visible.indices) return
+        val movedId = visible[from].id
+        val targetId = visible[to].id
+        val fi = items.indexOfFirst { it.id == movedId }
+        val ti = items.indexOfFirst { it.id == targetId }
+        if (fi < 0 || ti < 0) return
+        items.add(ti, items.removeAt(fi))
+        if (!favoritesOnly) {
+            // без фильтра видимый список совпадает с items: сообщаем RecyclerView
+            // о перемещении точечно — полный ребинд сорвал бы жест ItemTouchHelper
+            visible.add(to, visible.removeAt(from))
+            notifyItemMoved(from, to)
+        } else {
+            rebuildVisible()
+        }
     }
 
     /** Текущий порядок — для сохранения sortOrder */
     fun snapshotOrder(): List<Panel> = items.toList()
 
-    fun panelAt(position: Int): Panel? = items.getOrNull(position)
+    /** Все панели без учёта фильтра (для сборки списка избранного на платформу) */
+    fun allPanels(): List<Panel> = items.toList()
+
+    fun panelAt(position: Int): Panel? = visible.getOrNull(position)
 
     fun updateValue(panelId: Long, value: String, time: Long = System.currentTimeMillis()) {
         val index = items.indexOfFirst { it.id == panelId }
         if (index < 0) return
         applyValue(index, value, time)
-        notifyItemChanged(index)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
     /** Обновить все панели, подписанные на тему (с учётом MQTT-масок +/#) */
@@ -117,22 +161,25 @@ class WidgetAdapter(
         // Точечные уведомления вместо notifyDataSetChanged: сообщения приходят
         // несколько раз в секунду, и полный ребинд ВСЕХ карточек давал мигание
         // и срывал жесты (RecyclerView перекладывал элементы под пальцем)
-        val changed = LinkedHashSet<Int>()
+        val changed = LinkedHashSet<Long>()
         items.forEachIndexed { index, panel ->
             if (panel.type == WidgetType.MULTI_CHART) {
                 // значение уходит в те серии, чья тема совпала
                 panel.series.forEachIndexed { i, s ->
                     if (s.topic.isNotBlank() && topicMatches(s.topic, topic)) {
                         applyMultiValue(panel, i, value, time)
-                        changed.add(index)
+                        changed.add(panel.id)
                     }
                 }
             } else if (panel.topicSubscribe.isNotBlank() && topicMatches(panel.topicSubscribe, topic)) {
                 applyValue(index, value, time)
-                changed.add(index)
+                changed.add(panel.id)
             }
         }
-        changed.forEach { notifyItemChanged(it) }
+        changed.forEach { id ->
+            val vi = visibleIndex(id)
+            if (vi >= 0) notifyItemChanged(vi)
+        }
     }
 
     private fun applyValue(index: Int, raw: String, time: Long = System.currentTimeMillis()) {
@@ -197,8 +244,8 @@ class WidgetAdapter(
     /** Очистить точки графика (на время загрузки нового периода истории) */
     fun resetChartHistory(panelId: Long) {
         chartHistory[panelId]?.clear()
-        val idx = items.indexOfFirst { it.id == panelId }
-        if (idx >= 0) notifyItemChanged(idx)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
     /** Дописать историю из Народмона ПЕРЕД live-точками (без дублей по времени) */
@@ -210,8 +257,8 @@ class WidgetAdapter(
             .toMutableList()
         while (merged.size > cap) merged.removeFirst()
         chartHistory[panelId] = merged
-        val idx = items.indexOfFirst { it.id == panelId }
-        if (idx >= 0) notifyItemChanged(idx)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
     /**
@@ -226,8 +273,8 @@ class WidgetAdapter(
         val merged = pts.distinctBy { it.t }.sortedBy { it.t }.toMutableList()
         while (merged.size > cap) merged.removeFirst()
         chartHistory[panelId] = merged
-        val idx = items.indexOfFirst { it.id == panelId }
-        if (idx >= 0) notifyItemChanged(idx)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
     /** Точки одиночного графика (копия) для полноэкранного просмотра */
@@ -271,15 +318,15 @@ class WidgetAdapter(
     /** Очистить кэш истории графика — смена периода карточки (1d↔1w↔1m↔1y) */
     fun clearHistory(panelId: Long) {
         chartHistory.remove(panelId)
-        val idx = items.indexOfFirst { it.id == panelId }
-        if (idx >= 0) notifyItemChanged(idx)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
     /** Очистить кэш истории всех серий мультиграфика (смена периода) */
     fun clearMultiHistory(panelId: Long) {
         chartMultiHistory.keys.removeAll { it.substringBefore(':').toLongOrNull() == panelId }
-        val idx = items.indexOfFirst { it.id == panelId }
-        if (idx >= 0) notifyItemChanged(idx)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
     /** Дописать историю серии мультиграфика из Grafana ПЕРЕД live-точками */
@@ -294,17 +341,18 @@ class WidgetAdapter(
             .toMutableList()
         while (merged.size > cap) merged.removeFirst()
         chartMultiHistory[key] = merged
-        val idx = items.indexOfFirst { it.id == panelId }
-        if (idx >= 0) notifyItemChanged(idx)
+        val vi = visibleIndex(panelId)
+        if (vi >= 0) notifyItemChanged(vi)
     }
 
-    /** Обновить метаданные панели (период и настройки) с сохранением значений */
+    /** Обновить метаданные панели (период, избранное и настройки) с сохранением значений */
     fun updatePanelMeta(updated: Panel) {
         val idx = items.indexOfFirst { it.id == updated.id }
-        if (idx >= 0) {
-            items[idx] = updated.copy(lastValue = items[idx].lastValue, lastTime = items[idx].lastTime)
-            notifyItemChanged(idx)
-        }
+        if (idx < 0) return
+        items[idx] = updated.copy(lastValue = items[idx].lastValue, lastTime = items[idx].lastTime)
+        // visible держит ССЫЛКИ на элементы items: после замены объекта ссылка
+        // устарела — пересобираем видимый список (он же обновит RecyclerView)
+        rebuildVisible()
     }
 
     /**
@@ -377,9 +425,9 @@ class WidgetAdapter(
         return fParts.size == tParts.size
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = visible.size
 
-    override fun getItemViewType(position: Int): Int = items[position].type.ordinal
+    override fun getItemViewType(position: Int): Int = visible[position].type.ordinal
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): BaseHolder {
         val inflater = LayoutInflater.from(parent.context)
@@ -457,7 +505,9 @@ class WidgetAdapter(
         fun bind(panel: Panel) {
             // карточка перебиндивается (RecyclerView) — старый повтор не должен жить
             stopRepeat()
-            tvName.text = panel.name
+            // ★ перед именем — панель в избранном (маркер без правки 11 layout'ов
+            // карточек; в фильтре «только избранное» он виден на каждой карточке)
+            tvName.text = if (panel.favorite) "★ ${panel.name}" else panel.name
             // подписи топиков скрыты — информация дублируется в заголовке/легенде
             tvTopic?.visibility = View.GONE
             tvTopic?.text = panel.topicSubscribe.ifBlank {
@@ -542,17 +592,28 @@ class WidgetAdapter(
             return tv.data
         }
 
-        /** Меню панели: редактировать / клонировать / удалить.
+        /** Меню панели: редактировать / избранное / клонировать / удалить.
          *  setItems() не показывает иконки, поэтому список — свой адаптер
-         *  по layout item_menu_action (иконка + подпись). */
+         *  по layout item_menu_action (иконка + подпись).
+         *  Пункт «Избранное» — только у панелей Народмона: избранное живёт на
+         *  аккаунте платформы (userFavorites), у MQTT-панелей его брать негде. */
         private fun showMenu(anchor: View, panel: Panel) {
             val ctx = anchor.context
-            val titles = arrayOf(
-                ctx.getString(R.string.edit_panel),
-                ctx.getString(R.string.duplicate_panel),
-                ctx.getString(R.string.delete_panel)
-            )
-            val icons = intArrayOf(R.drawable.ic_edit, R.drawable.ic_duplicate, R.drawable.ic_delete)
+            val narodmon = panel.source == "narodmon"
+            val titles = buildList {
+                add(ctx.getString(R.string.edit_panel))
+                if (narodmon) add(ctx.getString(
+                    if (panel.favorite) R.string.remove_favorite else R.string.add_favorite
+                ))
+                add(ctx.getString(R.string.duplicate_panel))
+                add(ctx.getString(R.string.delete_panel))
+            }.toTypedArray()
+            val icons = buildList {
+                add(R.drawable.ic_edit)
+                if (narodmon) add(if (panel.favorite) R.drawable.ic_star else R.drawable.ic_star_outline)
+                add(R.drawable.ic_duplicate)
+                add(R.drawable.ic_delete)
+            }.toIntArray()
             val adapter = object : android.widget.ArrayAdapter<String>(
                 ctx, R.layout.item_menu_action, R.id.menu_title, titles
             ) {
@@ -566,10 +627,17 @@ class WidgetAdapter(
                 .setTitle(panel.name)
                 .setAdapter(adapter) { dialog, which ->
                     dialog.dismiss()
-                    when (which) {
-                        0 -> onEdit(panel)
-                        1 -> onDuplicate(panel)
-                        2 -> onDelete(panel)
+                    when {
+                        which == 0 -> onEdit(panel)
+                        narodmon && which == 1 -> onToggleFavorite?.invoke(panel)
+                        else -> {
+                            // без избранного пункты сдвинуты на один
+                            val shift = if (narodmon) 0 else 1
+                            when (which + shift) {
+                                1 -> onDuplicate(panel)
+                                2 -> onDelete(panel)
+                            }
+                        }
                     }
                 }
                 .show()

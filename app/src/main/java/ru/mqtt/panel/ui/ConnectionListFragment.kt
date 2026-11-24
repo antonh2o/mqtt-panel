@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import ru.mqtt.panel.R
 import ru.mqtt.panel.data.AppRepository
 import ru.mqtt.panel.data.MqttConnection
+import ru.mqtt.panel.data.NarodmonApi
 import ru.mqtt.panel.databinding.FragmentConnectionListBinding
 import ru.mqtt.panel.mqtt.startMqttConnect
 import ru.mqtt.panel.mqtt.startNarodmon
@@ -261,10 +262,76 @@ class ConnectionListFragment : Fragment() {
             layoutMqtt.visibility = if (checked) View.GONE else View.VISIBLE
             root.findViewById<View>(R.id.layout_api_key).visibility =
                 if (checked) View.VISIBLE else View.GONE
+            root.findViewById<View>(R.id.layout_nm_account).visibility =
+                if (checked) View.VISIBLE else View.GONE
             layoutGh.visibility = if (checked) View.GONE else View.VISIBLE
             if (checked && etHost.text.isBlank()) etHost.setText("api.narodmon.ru")
         }
         cbNarodmon.setOnCheckedChangeListener { _, checked -> applyNarodmonMode(checked) }
+
+        // --- userLogon: регистрация по email (userLogon БЕЗ hash) и userLogout.
+        // Оба работают по уже введённым в форму ключу/почте, без сохранения
+        val etApiKey = root.findViewById<EditText>(R.id.et_api_key)
+        root.findViewById<View>(R.id.btn_nm_register).setOnClickListener {
+            val apiKey = etApiKey.text.toString().trim()
+            if (apiKey.isBlank()) {
+                Toast.makeText(requireContext(), R.string.nm_need_key_first, Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val etUsername = root.findViewById<EditText>(R.id.et_username)
+            val email = etUsername.text.toString().trim()
+            val input = EditText(requireContext()).apply {
+                setText(email)
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            }
+            com.google.android.material.dialog.MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.nm_register_title)
+                .setMessage(R.string.nm_register_hint)
+                .setView(input)
+                .setPositiveButton(R.string.save) { _, _ ->
+                    val sent = input.text.toString().trim()
+                    if (sent.isBlank()) {
+                        Toast.makeText(requireContext(),
+                            getString(R.string.nm_register_failed, "email empty"),
+                            Toast.LENGTH_LONG).show()
+                        return@setPositiveButton
+                    }
+                    etUsername.setText(sent)
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        try {
+                            val reply = NarodmonApi.registerByEmail(
+                                requireContext().applicationContext, apiKey, sent)
+                            Toast.makeText(requireContext(),
+                                getString(R.string.nm_register_ok, reply.take(160)),
+                                Toast.LENGTH_LONG).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(requireContext(),
+                                getString(R.string.nm_register_failed,
+                                    e.message ?: e.javaClass.simpleName), Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                .setNegativeButton(R.string.cancel, null)
+                .show()
+        }
+        root.findViewById<View>(R.id.btn_nm_logout).setOnClickListener {
+            val apiKey = etApiKey.text.toString().trim()
+            if (apiKey.isBlank()) {
+                Toast.makeText(requireContext(), R.string.nm_need_key_first, Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    NarodmonApi.logOut(requireContext().applicationContext, apiKey)
+                    Toast.makeText(requireContext(), R.string.nm_logout_ok, Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(requireContext(),
+                        getString(R.string.nm_logout_failed,
+                            e.message ?: e.javaClass.simpleName), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
 
         // чекбокс Grafana раскрывает поля; при первом включении — дефолты telegraf
         ghCb.setOnCheckedChangeListener { _, checked ->

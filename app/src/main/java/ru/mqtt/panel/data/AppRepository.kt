@@ -148,6 +148,8 @@ class AppRepository(private val context: Context) {
                 // конфиги до 0.2.68: поля jsonPath нет
                 jsonPath = it.jsonPath ?: "",
                 source = it.source ?: "mqtt",
+                // конфиги до 0.2.83 поля favorite не знают: Gson оставит null
+                favorite = it.favorite ?: false,
                 showTime = it.showTime ?: true,
                 lastTime = it.lastTime ?: 0L,
                 colorMin = it.colorMin ?: "",

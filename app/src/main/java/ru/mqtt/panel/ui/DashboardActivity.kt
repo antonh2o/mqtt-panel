@@ -234,6 +234,39 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Избранное с платформы (fav=1 из sensorsNearby): звёздочки на карточках
+     * должны отражать народмоновское избранное, а не только локальный флаг.
+     * Локально помеченное и не сохранившееся на платформу тоже остаётся
+     * звёздочкой — иначе пользователь видел бы «не сохранилось» и пустой маркер.
+     */
+    private val favoriteReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            val conn = loadedConnection ?: return
+            if (!conn.narodmon) return
+            val ids = intent?.getIntArrayExtra(NarodmonService.EXTRA_FAVORITE_IDS) ?: return
+            applyPlatformFavorites(ids.toSet())
+        }
+    }
+
+    /** Проставляем favorite по ответу платформы; локально избранные не снимаем */
+    private fun applyPlatformFavorites(platformIds: Set<Int>) {
+        val panels = widgetAdapter.allPanels()
+        val changed = panels.filter { p ->
+            p.source == "narodmon" && !p.favorite &&
+                (p.topicSubscribe.toIntOrNull() ?: -1) in platformIds
+        }
+        if (changed.isEmpty()) return
+        val ids = changed.map { it.id }.toSet()
+        lifecycleScope.launch {
+            changed.forEach { repository.updatePanel(it.copy(favorite = true)) }
+            widgetAdapter.submitKeepingValues(
+                panels.map { if (it.id in ids) it.copy(favorite = true) else it })
+            updateEmptyView()
+            invalidateOptionsMenu()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // тема до инфлейта: светлая / тёмная / системная (выбор на главном экране)
@@ -268,6 +301,9 @@ class DashboardActivity : AppCompatActivity() {
         widgetAdapter.locked = getSharedPreferences("dashboard", MODE_PRIVATE)
             .getBoolean("locked", false)
         applyLockEdgePadding()
+        // Звёздочка в меню карточки Народмона: меняем локально и сохраняем
+        // полный список избранного на платформу (userFavorites его заменяет)
+        widgetAdapter.onToggleFavorite = { panel -> toggleFavorite(panel) }
         // Чипы «1d/1w/1m/1y» на narodmon-графике: сохранить период и перезагрузить историю
         widgetAdapter.onChartPeriodSelected = { panel, period -> onChartPeriodChanged(panel, period) }
 
@@ -388,6 +424,17 @@ class DashboardActivity : AppCompatActivity() {
         menu.findItem(R.id.action_move)?.setIcon(
             if (widgetAdapter.moveMode) R.drawable.ic_check else R.drawable.ic_move
         )
+        // Звёздочка-фильтр «только избранное» — только у Народмона: избранное
+        // живёт на аккаунте платформы (userFavorites / fav в sensorsNearby)
+        menu.findItem(R.id.action_favorites)?.apply {
+            val nm = loadedConnection?.narodmon == true
+            isVisible = nm
+            if (nm) {
+                setIcon(if (widgetAdapter.favoritesOnly) R.drawable.ic_star else R.drawable.ic_star_outline)
+                setTitle(if (widgetAdapter.favoritesOnly) R.string.favorites_show_all
+                         else R.string.favorites_filter)
+            }
+        }
         // в режиме блокировки правки запрещены: перемещение и добавление скрыты,
         // а пункт меню предлагает снять блокировку
         menu.findItem(R.id.action_move)?.isVisible = !widgetAdapter.locked
@@ -406,8 +453,66 @@ class DashboardActivity : AppCompatActivity() {
             R.id.action_add -> { addPanel(); return true }
             R.id.action_move -> { toggleMoveMode(); return true }
             R.id.action_lock -> { toggleLockMode(); return true }
+            R.id.action_favorites -> { toggleFavoritesFilter(); return true }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /** Фильтр «только избранное»: состояние переживает перезапуск (prefs dashboard) */
+    private fun toggleFavoritesFilter() {
+        widgetAdapter.favoritesOnly = !widgetAdapter.favoritesOnly
+        getSharedPreferences("dashboard", MODE_PRIVATE).edit()
+            .putBoolean("favorites_only", widgetAdapter.favoritesOnly).apply()
+        updateEmptyView()
+        invalidateOptionsMenu()
+    }
+
+    /**
+     * Подпись пустого экрана: панелей нет вовсе — или они есть, но фильтр
+     * «только избранное» скрыл все карточки (иначе экран выглядел бы
+     * «пустым без объяснений»).
+     */
+    private fun updateEmptyView() {
+        val all = widgetAdapter.allPanels()
+        val shown = widgetAdapter.itemCount
+        binding.tvEmpty.text = getString(
+            if (all.isEmpty()) R.string.panel_list_empty else R.string.favorites_empty
+        )
+        binding.tvEmpty.visibility = if (shown == 0) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Звёздочка карточки Народмона: избранное хранится НА ПЛАТФОРМЕ, а
+     * userFavorites заменяет список ЦЕЛИКОМ — поэтому отправляем все id,
+     * помеченные у нас. До сохранения locally: UI реагирует сразу, при
+     * ошибке платформы откатываем и показываем причину.
+     */
+    private fun toggleFavorite(panel: Panel) {
+        val conn = loadedConnection ?: return
+        if (!conn.narodmon) return
+        val newValue = !panel.favorite
+        widgetAdapter.updatePanelMeta(panel.copy(favorite = newValue))
+        // Полный список избранных id после переключения: только narodmon-панели,
+        // иначе числовой MQTT-топик («123») уехал бы на платформу как id датчика
+        val ids = widgetAdapter.allPanels()
+            .filter { it.favorite && it.source == "narodmon" }
+            .mapNotNull { p -> p.topicSubscribe.toIntOrNull() }
+        lifecycleScope.launch {
+            repository.updatePanel(panel.copy(favorite = newValue))
+            try {
+                NarodmonApi.saveFavoriteSensorIds(applicationContext, conn.apiKey, ids)
+                updateEmptyView()
+                Toast.makeText(this@DashboardActivity, R.string.favorites_saved, Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                // откат локального изменения: на платформе оно не сохранилось
+                widgetAdapter.updatePanelMeta(panel)
+                repository.updatePanel(panel)
+                updateEmptyView()
+                Toast.makeText(this@DashboardActivity,
+                    getString(R.string.favorites_save_failed,
+                        e.message ?: e.javaClass.simpleName), Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     /** Блокировка дашборда: карточки только показывают данные — без меню,
@@ -679,6 +784,12 @@ class DashboardActivity : AppCompatActivity() {
             // lastValue из кэша репозитория относится к прежнему подключению —
             // не показываем протухшие значения, retained-сообщения придут сразу после подписки
             receivedCount = 0
+            // Фильтр «только избранное» переживает перезапуск, но имеет смысл
+            // только у Народмона: у MQTT-подключения его снимаем, иначе
+            // звёздочка, включённая в одном подключении, спрятала бы ВСЕ
+            // карточки другого (избранного там взять неоткуда)
+            widgetAdapter.favoritesOnly = getSharedPreferences("dashboard", MODE_PRIVATE)
+                .getBoolean("favorites_only", false) && connection.narodmon
             widgetAdapter.submitFresh(panels)
             // Мгновенный показ последних значений и графиков из runtime-кэша
             val cached = repository.loadRuntimeValues(connectionId)
@@ -687,7 +798,7 @@ class DashboardActivity : AppCompatActivity() {
             // спасает редкие retained-топики (wanip), для которых runtime-кэш
             // пуст, потому что значение как-то раз не дошло до адаптера
             applyServiceReplay()
-            binding.tvEmpty.visibility = if (panels.isEmpty()) View.VISIBLE else View.GONE
+            updateEmptyView()
 
             // Графики Народмона: подтянуть историю за сутки (пачками, с паузами
             // из-за лимита платформы), live-точки допишутся поверх
@@ -1920,7 +2031,7 @@ class DashboardActivity : AppCompatActivity() {
     private suspend fun reloadPanels() {
         val panels = repository.getPanels(connectionId)
         widgetAdapter.submitKeepingValues(panels)
-        binding.tvEmpty.visibility = if (panels.isEmpty()) View.VISIBLE else View.GONE
+        updateEmptyView()
         // Состав панелей изменился — обновляем подписки сервиса без переподключения.
         // Если соединения нет (или оно к другому подключению) — поднимаем заново,
         // иначе правка панели на «остывшем» сокете оставляла экран offline навсегда
@@ -1936,6 +2047,10 @@ class DashboardActivity : AppCompatActivity() {
         val lm = LocalBroadcastManager.getInstance(this)
         lm.registerReceiver(statusReceiver, IntentFilter(MqttService.BROADCAST_STATUS))
         lm.registerReceiver(messageReceiver, IntentFilter(MqttService.BROADCAST_MESSAGE))
+        // всегда, а не «если narodmon»: loadedConnection догружается асинхронно,
+        // и условная регистрация пропускала бы избранное при первом заходе.
+        // Источник проверяется внутри приёмника
+        lm.registerReceiver(favoriteReceiver, IntentFilter(NarodmonService.BROADCAST_FAVORITES))
         // Сервис подписан раньше, чем зарегистрирован приёмник: retained-
         // сообщения (wanip публикуется раз в минуты) приходили в пустоту и
         // карточка пустовала. Забираем кэш последних сообщений сервиса.
@@ -1966,6 +2081,7 @@ class DashboardActivity : AppCompatActivity() {
         val lm = LocalBroadcastManager.getInstance(this)
         lm.unregisterReceiver(statusReceiver)
         lm.unregisterReceiver(messageReceiver)
+        lm.unregisterReceiver(favoriteReceiver)
         uptimeTicker.removeMessages(0)
         // сохранить последние значения и истории графиков для мгновенного показа
         lifecycleScope.launch {

@@ -78,6 +78,33 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- userLogon без hash = регистрация в проекте по email: платформа
+             высылает пароль участника, его остаётся вписать в поле «Пароль».
+             Рядом — выход из аккаунта (userLogout) -->
+        <LinearLayout
+            android:id="@+id/layout_nm_account"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_nm_register"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/nm_register_by_email" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_nm_logout"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/nm_logout" />
+
+        </LinearLayout>
+
         <!-- Поля, относящиеся только к MQTT -->
         <LinearLayout
             android:id="@+id/layout_mqtt"

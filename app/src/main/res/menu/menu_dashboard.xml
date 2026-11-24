@@ -20,6 +20,14 @@
         android:title="@string/move_mode"
         app:showAsAction="never" />
 
+    <!-- Фильтр «только избранное» — только для подключений Народного Мониторинга
+         (включается/скрывается в onPrepareOptionsMenu) -->
+    <item
+        android:id="@+id/action_favorites"
+        android:icon="@drawable/ic_star_outline"
+        android:title="@string/favorites_filter"
+        app:showAsAction="ifRoom" />
+
     <item
         android:id="@+id/action_lock"
         android:icon="@drawable/ic_lock"

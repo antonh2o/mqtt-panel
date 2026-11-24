@@ -105,4 +105,67 @@ class NarodmonApiTest {
         assertEquals("25.6", NarodmonApi.fmt(25.6))
         assertEquals("0", NarodmonApi.fmt(0.0))
     }
+
+    // --- 0.2.83: избранное, устройства, sensorsOnDevice ---
+
+    @Test
+    fun `parseSnapshot возвращает устройства с id и плоский список датчиков`() {
+        val json = """
+            {"devices":[
+              {"id":3658,"name":"MeteoStation","my":1,"cmd":1,"sensors":[
+                 {"id":11384,"name":"Улица","value":0.5,"fav":1},
+                 {"id":11386,"name":"Давление","value":713.81,"fav":0}]},
+              {"id":4552,"name":"Ватериус","my":1,"sensors":[
+                 {"id":15001,"name":"Дом","value":22.4}]}
+            ]}
+        """.trimIndent()
+        val snap = NarodmonApi.parseSnapshot(json)
+        assertEquals(2, snap.devices.size)
+        assertEquals(3658, snap.devices[0].id)
+        assertEquals(1, snap.devices[0].cmd)
+        assertEquals(2, snap.devices[0].sensors.size)
+        // датчики собраны из всех устройств в один список
+        assertEquals(listOf(11384, 11386, 15001), snap.sensors.map { it.id })
+        // fav=1 читается в поле
+        assertEquals(1, snap.sensors[0].fav)
+        assertEquals(0, snap.sensors[1].fav)
+    }
+
+    @Test
+    fun `parseSnapshot на плоском конверте даёт пустые устройства`() {
+        val snap = NarodmonApi.parseSnapshot("""{"sensors":[{"id":11823,"value":25.6}]}""")
+        assertTrue(snap.devices.isEmpty())
+        assertEquals(1, snap.sensors.size)
+        assertEquals(11823, snap.sensors[0].id)
+    }
+
+    @Test
+    fun `parseFavoriteIds берёт id из sensors и отбрасывает ноль`() {
+        val ids = NarodmonApi.parseFavoriteIds(
+            """{"sensors":[{"id":11384},{"id":15001},{"id":0}]}"""
+        )
+        assertEquals(listOf(11384, 15001), ids)
+        assertTrue(NarodmonApi.parseFavoriteIds("{\"sensors\":[]}").isEmpty())
+        assertTrue(NarodmonApi.parseFavoriteIds("garbage").isEmpty())
+    }
+
+    @Test
+    fun `parseFavoriteIds на ошибке 401 бросает AuthRequiredException`() {
+        val e = runCatching {
+            NarodmonApi.parseFavoriteIds("""{"error":"Авторизуйтесь","errno":401}""")
+        }.exceptionOrNull()
+        assertTrue(e is NarodmonApi.AuthRequiredException)
+    }
+
+    @Test
+    fun `favoritesBody при пустом списке шлёт 0 (очистить)`() {
+        val gson = com.google.gson.Gson()
+        // тело проверяем по подстрокам: порядок ключей в Gson не гарантирован
+        val body = NarodmonApi.favoritesBody(gson, "u123", listOf(11384, 15001))
+        assertTrue(body.contains("\"uuid\":\"u123\""))
+        assertTrue(body.contains("\"sensors\":[11384,15001]"))
+
+        val cleared = NarodmonApi.favoritesBody(gson, "u123", emptyList())
+        assertTrue(cleared.contains("\"sensors\":[0]"))
+    }
 }
