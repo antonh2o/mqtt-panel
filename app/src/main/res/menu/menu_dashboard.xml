@@ -21,17 +21,20 @@
         app:showAsAction="never" />
 
     <!-- Фильтр «только избранное» — только для подключений Народного Мониторинга
-         (включается/скрывается в onPrepareOptionsMenu) -->
+         (включается/скрывается в onPrepareOptionsMenu). always, а не ifRoom:
+         на узком экране (590x1280) ifRoom-звёздочка уезжала в ⋮-меню -->
     <item
         android:id="@+id/action_favorites"
         android:icon="@drawable/ic_star_outline"
         android:title="@string/favorites_filter"
-        app:showAsAction="ifRoom" />
+        app:showAsAction="always" />
 
+    <!-- Блокировка дашборда — видимой иконкой ВСЕГДА слева от ⋮: она же и
+         индикатор режима (закрытый замок яркий = правки запрещены) -->
     <item
         android:id="@+id/action_lock"
         android:icon="@drawable/ic_lock"
         android:title="@string/lock_mode"
-        app:showAsAction="never" />
+        app:showAsAction="always" />
 
 </menu>

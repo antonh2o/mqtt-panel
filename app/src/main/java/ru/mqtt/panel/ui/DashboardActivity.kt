@@ -74,9 +74,6 @@ class DashboardActivity : AppCompatActivity() {
     private var connectionId: Long = 0
     /** Текущее подключение — определяет, чем его обслуживать: MQTT или Narodmon */
     private var loadedConnection: MqttConnection? = null
-    /** Сколько сообщений пришло — видно в статусе, чтобы отличить
-     *  «подписались, но брокер молчит» от «не обновили UI» */
-    private var receivedCount = 0
     /** Пользователь сам нажал «Отключить» — не переподключаться молча */
     private var userDisconnected = false
     private var dragHelper: androidx.recyclerview.widget.ItemTouchHelper? = null
@@ -97,10 +94,6 @@ class DashboardActivity : AppCompatActivity() {
     private fun svcConnId(): Long =
         if (useNarodmon()) NarodmonService.activeConnectionId else MqttService.activeConnectionId
 
-    private fun svcUptime(): Long =
-        if (useNarodmon()) NarodmonService.uptimeSeconds()
-        else MqttService.uptimeSecondsOf(connectionId)
-
     private fun connectService(conn: MqttConnection, panels: List<Panel>) {
         if (conn.narodmon) startNarodmon(conn, panels) else startMqttConnect(conn, panels)
     }
@@ -120,74 +113,9 @@ class DashboardActivity : AppCompatActivity() {
         else syncMqttPanels(connectionId, panels)
     }
 
-    private fun renderStatus(
-        connected: Boolean = false,
-        connecting: Boolean = false,
-        error: String? = null
-    ) {
-        val base = when {
-            error != null -> "✗ $error"
-            connecting -> "⟳ " + getString(R.string.connecting)
-            connected -> "✓ " + getString(R.string.connected)
-            else -> "✗ " + getString(R.string.disconnected)
-        }
-        // Рядом со статусом — время в сети: 45 с / 5 мин 12 с / 1 ч 07 мин
-        val up = svcUptime()
-        val isConnected = connected || svcState() == ConnectionState.CONNECTED
-
-        // --- тулбар: LED + КОМПАКТНЫЙ статус справа от заголовка ---
-        // Полный текст («✓ Подключено · 5 мин») на узком экране наползал
-        // на заголовок — в тулбаре только символ состояния и таймер
-        val statusBar = binding.toolbarStatus
-        val toolbarLed = binding.toolbarLed
-        val toolbarText = binding.tvToolbarStatus
-        statusBar.visibility = View.VISIBLE
-        val compact = when {
-            error != null -> "✗"
-            connecting -> "⟳"
-            isConnected -> if (up >= 0) "✓ ${formatUptime(up)}" else "✓"
-            else -> "✗"
-        }
-        toolbarText.text = compact
-        when {
-            error != null || !isConnected && !connecting -> {
-                toolbarLed.setBackgroundColor(android.graphics.Color.parseColor("#E53935"))
-                toolbarText.setTextColor(android.graphics.Color.parseColor("#E53935"))
-            }
-            connecting -> {
-                toolbarLed.setBackgroundColor(android.graphics.Color.parseColor("#F9A825"))
-                toolbarText.setTextColor(android.graphics.Color.parseColor("#F9A825"))
-            }
-            else -> {
-                toolbarLed.setBackgroundColor(android.graphics.Color.parseColor("#43A047"))
-                toolbarText.setTextColor(android.graphics.Color.parseColor("#43A047"))
-            }
-        }
-        // пункт «Подключить/Отключить» в ⋮-меню отражает состояние
-        invalidateOptionsMenu()
-    }
-
-    /** 45 с → 5 мин 12 с → 1 ч 07 мин */
-    private fun formatUptime(total: Long): String {
-        val s = total % 60
-        val m = (total / 60) % 60
-        val h = total / 3600
-        return when {
-            h > 0 -> String.format("%d ч %02d мин", h, m)
-            m > 0 -> String.format("%d мин %02d с", m, s)
-            else -> "$s с"
-        }
-    }
-
-    /** Раз в секунду обновляем счётчик времени в сети на статус-строке */
-    private val uptimeTicker = object : android.os.Handler(android.os.Looper.getMainLooper()) {
-        override fun handleMessage(msg: android.os.Message) {
-            if (svcState() == ConnectionState.CONNECTED) {
-                renderStatus(connected = true)
-            }
-            sendEmptyMessageDelayed(0, 1000)
-        }
-    }
+    // Индикатор состояния из тулбара убран по просьбе пользователя: даже один
+    // символ вытеснял ★ на узком экране (590x1280) в ⋮-меню. Состояние видно
+    // по светодиоду на главном экране и свежести значений; обрыв сообщаем тостом
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -197,13 +125,13 @@ class DashboardActivity : AppCompatActivity() {
                 val stConnId = intent.getLongExtra(MqttService.EXTRA_CONNECTION_ID, -1L)
                 if (stConnId != -1L && stConnId != connectionId && !useNarodmon()) return
             }
-            when {
-                status == ConnectionState.CONNECTED.name -> renderStatus(connected = true)
-                status == ConnectionState.CONNECTING.name -> renderStatus(connecting = true)
-                status.startsWith("error:") ->
-                    renderStatus(error = status.removePrefix("error:"))
-                else -> renderStatus()
+            // без статус-строки ошибка соединения была бы совсем невидимой
+            if (status.startsWith("error:")) {
+                Toast.makeText(this@DashboardActivity,
+                    status.removePrefix("error:"), Toast.LENGTH_LONG).show()
             }
+            // пункт «Подключить/Отключить» в ⋮-меню отражает состояние
+            invalidateOptionsMenu()
         }
     }
 
@@ -218,7 +146,6 @@ class DashboardActivity : AppCompatActivity() {
             val payload = intent.getStringExtra(MqttService.EXTRA_MESSAGE_PAYLOAD) ?: return
             // у Народмона — время платформы, у MQTT — момент приёма
             val time = intent.getLongExtra(MqttService.EXTRA_MESSAGE_TIME, System.currentTimeMillis())
-            receivedCount++
             widgetAdapter.updateValueByTopic(topic, payload, time)
             // Полноэкранный график обновляем ТОЛЬКО если тема относится к его
             // карточке. Раньше брался panelIdForTopic — первая совпавшая карточка,
@@ -230,7 +157,6 @@ class DashboardActivity : AppCompatActivity() {
                     refreshFullscreen(dlg.panelId)
                 }
             }
-            renderStatus(connected = svcState() == ConnectionState.CONNECTED)
         }
     }
 
@@ -439,9 +365,21 @@ class DashboardActivity : AppCompatActivity() {
         // а пункт меню предлагает снять блокировку
         menu.findItem(R.id.action_move)?.isVisible = !widgetAdapter.locked
         menu.findItem(R.id.action_add)?.isVisible = !widgetAdapter.locked
+        // Блокировка — видимая иконка всегда слева от ⋮, она же индикатор
+        // режима: закрытый замок в акцентном цвете = правки запрещены,
+        // открытый нейтральный = дашборд редактируется.
+        // Цвет берём через MaterialColors: theme.resolveAttribute для ?attr/
+        // ссылок возвращает ID ресурса, а не цвет — setTint таким значением
+        // даёт альфа-канал 0 и иконка становится полностью прозрачной
         menu.findItem(R.id.action_lock)?.apply {
-            setIcon(if (widgetAdapter.locked) R.drawable.ic_lock_open else R.drawable.ic_lock)
-            setTitle(if (widgetAdapter.locked) R.string.unlock_mode else R.string.lock_mode)
+            val lockedNow = widgetAdapter.locked
+            setIcon(if (lockedNow) R.drawable.ic_lock else R.drawable.ic_lock_open)
+            setTitle(if (lockedNow) R.string.unlock_mode else R.string.lock_mode)
+            val attr = if (lockedNow) com.google.android.material.R.attr.colorPrimary
+                       else androidx.appcompat.R.attr.colorControlNormal
+            val color = com.google.android.material.color.MaterialColors.getColor(
+                this@DashboardActivity, attr, 0xFF888888.toInt())
+            icon?.mutate()?.setTint(color)
         }
         return super.onPrepareOptionsMenu(menu)
     }
@@ -551,10 +489,8 @@ class DashboardActivity : AppCompatActivity() {
         if (widgetAdapter.moveMode) {
             Toast.makeText(this, R.string.move_mode_hint, Toast.LENGTH_LONG).show()
         } else {
-            // порядок мог меняться — сохраняем и обновляем статус связи
+            // порядок мог меняться — сохраняем
             lifecycleScope.launch { repository.savePanelOrder(widgetAdapter.snapshotOrder()) }
-            renderStatus(connected = svcState() == ConnectionState.CONNECTED,
-                connecting = svcState() == ConnectionState.CONNECTING)
         }
         invalidateOptionsMenu()
         // notifyItemRangeChanged — гарантирует onBind для всех видимых карточек
@@ -781,9 +717,6 @@ class DashboardActivity : AppCompatActivity() {
             supportActionBar?.subtitle = null
 
             val panels = repository.getPanels(connectionId)
-            // lastValue из кэша репозитория относится к прежнему подключению —
-            // не показываем протухшие значения, retained-сообщения придут сразу после подписки
-            receivedCount = 0
             // Фильтр «только избранное» переживает перезапуск, но имеет смысл
             // только у Народмона: у MQTT-подключения его снимаем, иначе
             // звёздочка, включённая в одном подключении, спрятала бы ВСЕ
@@ -2057,8 +1990,6 @@ class DashboardActivity : AppCompatActivity() {
         applyServiceReplay()
         // После перезахода/возврата: соединение могло умереть, пока экрана не было
         if (!userDisconnected) ensureConnected()
-        // Запускаем тикер обновления аптайма на статус-строке
-        uptimeTicker.sendEmptyMessage(0)
     }
 
     /** Значения из кэша сообщений сервиса — карточки, пропустившие retained,
@@ -2082,7 +2013,6 @@ class DashboardActivity : AppCompatActivity() {
         lm.unregisterReceiver(statusReceiver)
         lm.unregisterReceiver(messageReceiver)
         lm.unregisterReceiver(favoriteReceiver)
-        uptimeTicker.removeMessages(0)
         // сохранить последние значения и истории графиков для мгновенного показа
         lifecycleScope.launch {
             repository.saveRuntimeValues(connectionId, widgetAdapter.snapshotState())

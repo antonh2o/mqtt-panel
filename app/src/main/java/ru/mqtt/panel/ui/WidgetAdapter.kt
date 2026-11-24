@@ -470,7 +470,10 @@ class WidgetAdapter(
                 if (inner.paddingLeft != p) inner.setPadding(p, p, p, p)
             }
         }
-        holder.bind(items[position])
+        // bind от ВИДИМОГО списка: при фильтре избранного позиции RecyclerView
+        // считаются от visible, а items[position] подставлял чужую панель —
+        // в конец избранного попадал «Ток потребления» вместо избранной карточки
+        holder.bind(visible[position])
     }
 
     inner class BaseHolder(view: View) : RecyclerView.ViewHolder(view) {
