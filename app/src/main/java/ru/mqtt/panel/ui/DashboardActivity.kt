@@ -1084,6 +1084,12 @@ class DashboardActivity : AppCompatActivity() {
      * 2 запросов/мин (пауза 30 с). Раньше на время пакета опрос значений
      * полностью ставился на паузу — карточки замирали на 5–15 минут.
      * Обновление не чаще раза в 30 минут (время — в runtime-кэше панели).
+     *
+     * Порядок: сначала карточки, видимые на экране (пользователь видит, как
+     * заполняется то, что перед глазами), затем остальные. Пустой ответ
+     * (лимит/сбой) наращивает паузу; если часть карточек осталась пустой,
+     * а часть получила данные — не глобальный лимит, делается один
+     * повторный проход по пустым с тем же нарастающим троттлингом.
      */
     private fun loadNarodmonChartHistory(panels: List<Panel>) {
         if (historyLoading) return
@@ -1095,14 +1101,17 @@ class DashboardActivity : AppCompatActivity() {
         historyLoading = true
         lifecycleScope.launch {
             try {
-                var pauseMs = 0L          // первый график — сразу
-                for (panel in chartPanels) {
-                    val sensorId = panel.topicSubscribe.toIntOrNull() ?: continue
+                delay(3_000)      // не стартовать в один такт с опросом значений/логином
+                var pauseMs = 0L  // первый график — сразу после начальной паузы
+                var loadedNow = false // хоть один реальный успех в этом проходе
+
+                suspend fun fetchCard(panel: Panel): Boolean {
+                    val sensorId = panel.topicSubscribe.toIntOrNull() ?: return true
                     val period = panel.historyPeriod ?: "day"
                     val runtime = repository.loadRuntimeValues(connectionId)
                     val rt = runtime["${panel.id}"]
                     val fresh = System.currentTimeMillis() - (rt?.fetchedAt ?: 0L) < 30 * 60_000L
-                    if (fresh && rt?.history?.isNotEmpty() == true && rt?.period == period) continue
+                    if (fresh && rt?.history?.isNotEmpty() == true && rt?.period == period) return true
 
                     if (pauseMs > 0) delay(pauseMs)
                     val points = runCatching {
@@ -1112,9 +1121,10 @@ class DashboardActivity : AppCompatActivity() {
                         // пусто или отказ (лимит) — плавно увеличиваем паузу
                         // (30 → 60 → 120 с), успех возвращает к 30 с
                         pauseMs = minOf(maxOf(pauseMs, 30_000L) * 2, 120_000L)
-                        continue
+                        return false
                     }
                     pauseMs = 30_000L
+                    loadedNow = true
 
                     withContext(Dispatchers.Main) {
                         widgetAdapter.prependHistory(panel.id, points.map { ChartView.TimePoint(it.t, it.v) })
@@ -1127,6 +1137,27 @@ class DashboardActivity : AppCompatActivity() {
                         period = period
                     )
                     repository.saveRuntimeValues(connectionId, all)
+                    return true
+                }
+
+                // Видимые карточки — первыми
+                val visible = buildSet {
+                    (binding.recyclerWidgets.layoutManager
+                        as? androidx.recyclerview.widget.GridLayoutManager)?.let { lm ->
+                        for (p in lm.findFirstVisibleItemPosition()..lm.findLastVisibleItemPosition()) add(p)
+                    }
+                }
+                val ordered = chartPanels.sortedBy { if (panels.indexOf(it) in visible) 0 else 1 }
+
+                val failed = mutableListOf<Panel>()
+                for (panel in ordered) {
+                    if (fetchCard(panel)) continue
+                    failed += panel
+                }
+                // Что-то загрузилось, а что-то нет — не глобальный лимит:
+                // один повтор по пустым (пауза своя, нарастает дальше)
+                if (loadedNow && failed.isNotEmpty()) {
+                    for (panel in failed) fetchCard(panel)
                 }
             } finally {
                 historyLoading = false
