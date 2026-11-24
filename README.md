@@ -16,17 +16,17 @@ MQTT+ Panel превращает Android-смартфон или планшет 
 <p align="center">
   <img src="screenshots/demo-first-run.png" width="32%">
   <img src="screenshots/demo-dark.png" width="32%">
-  <img src="screenshots/lock-mode.png" width="32%">
+  <img src="screenshots/crosshair.png" width="32%">
 </p>
 
-Главный дашборд · тёмная тема · заблокированная раскладка (плотная сетка, только данные)
+Главный дашборд · тёмная тема · крестовина: время и значение под пальцем
 
 <p align="center">
+  <img src="screenshots/lock-mode.png" width="49%">
   <img src="screenshots/mqtt-share.png" width="49%">
-  <img src="screenshots/crosshair.png" width="49%">
 </p>
 
-Настройки обмена конфигом через MQTT · крестовина под пальцем
+Заблокированная раскладка (плотная сетка, только данные) · настройки обмена конфигом через MQTT
 
 <p align="center">
   <img src="screenshots/fullscreen-chips.png" width="90%">
