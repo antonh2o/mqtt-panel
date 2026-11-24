@@ -98,7 +98,7 @@
     <string name="field_websocket">WebSocket</string>
     <string name="field_keep_alive">Keep Alive</string>
     <string name="field_client_id">Client ID (пусто — автоматически)</string>
-    <string name="field_span">Ширина панели</string>
+    <string name="field_topic_prefix">Префикс тем устройства (сканер ищет только внутри него)</string>\n    <string name="field_span">Ширина панели</string>
     <string name="field_clean_session">Чистая сессия</string>
     <string name="panel_list_empty">Нет панелей. Нажмите + чтобы добавить.</string>
     <string name="no_topic">Нет темы</string>

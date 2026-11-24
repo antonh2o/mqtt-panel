@@ -98,6 +98,14 @@ object IotMqttPanelImporter {
         dashboards.forEach { (id, d) ->
             details.add("  Dashboard '$id' → conn=${d.connectionId} prefix='${d.prefix}' name=${d.name}")
         }
+        // Префикс устройства первого дашборда сохраняется на подключении:
+        // он ограничивает сканер топиков этим устройством
+        dashboards.values.forEach { d ->
+            if (d.prefix.isNotBlank()) {
+                connections.firstOrNull { it.id == d.connectionId }
+                    ?.let { if (it.topicPrefix.isBlank()) it.topicPrefix = d.prefix }
+            }
+        }
 
         // --- 3. Панели ---
         val panels = mutableListOf<Panel>()

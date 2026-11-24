@@ -205,6 +205,11 @@ class MqttService : Service() {
     @Volatile
     private var scanning = false
 
+    /** Фильтр ТЕКУЩЕГО скана: «префикс/#» если у подключения задан префикс
+     *  тем устройства, иначе весь брокер («#»). Нужен при остановке скана —
+     *  отписываемся ровно от того, на что подписывались */
+    private var activeScanFilter = SCAN_FILTER
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -450,6 +455,11 @@ class MqttService : Service() {
             ImportLog.write(this, "SCAN: нет подключения")
             return
         }
+        // префикс тем устройства ограничивает скан: antonh2o/tuwa3 →
+        // подписка «antonh2o/tuwa3/#» вместо всего брокера («#»)
+        val prefix = conn.topicPrefix.trim().trimEnd('/')
+        activeScanFilter = if (prefix.isBlank()) SCAN_FILTER else "$prefix/#"
+        ImportLog.write(this, "SCAN FILTER: '$activeScanFilter'")
         mqttWorker.submit {
             ensureConnected(conn, emptyList())
             entries[conn.id]?.let { subscribeScanFilter(it) }
@@ -463,7 +473,7 @@ class MqttService : Service() {
         mqttWorker.submit {
             entries[activeConnectionId]?.let { entry ->
                 try {
-                    entry.client?.unsubscribe(SCAN_FILTER)
+                    entry.client?.unsubscribe(activeScanFilter)
                 } catch (e: Exception) {
                     Log.w(TAG, "Unsubscribe scan failed", e)
                 }
@@ -474,8 +484,8 @@ class MqttService : Service() {
     private fun subscribeScanFilter(entry: Entry) {
         val mqttClient = entry.client ?: return
         try {
-            mqttClient.subscribe(SCAN_FILTER, 0)
-            ImportLog.write(this, "SUBSCRIBED '$SCAN_FILTER' — сканер запущен (${entry.conn.name})")
+            mqttClient.subscribe(activeScanFilter, 0)
+            ImportLog.write(this, "SUBSCRIBED '$activeScanFilter' — сканер запущен (${entry.conn.name})")
         } catch (e: Exception) {
             ImportLog.write(this, "SCAN SUBSCRIBE FAILED: ${e.javaClass.simpleName}: ${e.message}")
         }

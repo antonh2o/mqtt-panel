@@ -101,6 +101,7 @@ class AppRepository(private val context: Context) {
                 narodmon = it.narodmon ?: false,
                 apiKey = it.apiKey ?: "",
                 demo = it.demo ?: false,
+                topicPrefix = it.topicPrefix ?: "",
                 // конфиги до 0.2.71 поля не знают: Gson оставит null → включено
                 enabled = it.enabled ?: true
             ).copy(id = ++cid)
@@ -167,7 +168,33 @@ class AppRepository(private val context: Context) {
                 demo = it.demo,
             )
         }
-        return AppConfig(fixedConnectionsGh, fixedPanels)
+        // Автодетект префикса тем устройства для СТАРЫХ конфигов: если у
+        // подключения префикс не задан, берём самый длинный общий префикс
+        // тем его панелей, оканчивающийся на «/» (antonh2o/tuwa3/...). У
+        // Народмона темы — числовые id, там общий префикс не находится.
+        val detectedPrefix = HashMap<Long, String>()
+        fixedConnections.forEach { c ->
+            if (!c.narodmon && c.topicPrefix.isBlank()) {
+                // пустые темы (кнопки/текст без адреса) в расчёт не идут:
+                // одна такая тема обнуляет общий префикс
+                val topics = fixedPanels.filter { it.connectionId == c.id }
+                    .map { it.topicSubscribe }
+                    .filter { it.isNotBlank() }
+                if (topics.size >= 2) {
+                    var common = topics.first()
+                    topics.drop(1).forEach { tp ->
+                        while (!tp.startsWith(common)) common = common.dropLast(1)
+                    }
+                    common = common.substringBeforeLast('/', "")
+                    if (common.contains('/')) detectedPrefix[c.id] = common
+                }
+            }
+        }
+        val fixedConnectionsPfx = fixedConnections.map {
+            val det = detectedPrefix[it.id]
+            if (det != null) it.copy(topicPrefix = det) else it
+        }
+        return AppConfig(fixedConnectionsPfx, fixedPanels)
     }
 
     suspend fun getConnections(): List<MqttConnection> = withContext(Dispatchers.IO) {

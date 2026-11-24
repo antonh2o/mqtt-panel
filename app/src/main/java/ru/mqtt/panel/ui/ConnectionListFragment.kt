@@ -278,6 +278,7 @@ class ConnectionListFragment : Fragment() {
             root.findViewById<EditText>(R.id.et_password).setText(conn.password)
             root.findViewById<EditText>(R.id.et_keepalive).setText(conn.keepAlive.toString())
             root.findViewById<EditText>(R.id.et_client_id).setText(conn.clientId)
+            root.findViewById<EditText>(R.id.et_topic_prefix).setText(conn.topicPrefix)
             cbNarodmon.isChecked = conn.narodmon
             root.findViewById<EditText>(R.id.et_api_key).setText(conn.apiKey)
             root.findViewById<CheckBox>(R.id.cb_ssl).isChecked = conn.ssl
@@ -331,6 +332,8 @@ class ConnectionListFragment : Fragment() {
                     keepAlive = root.findViewById<EditText>(R.id.et_keepalive).text.toString().toIntOrNull() ?: 60,
                     cleanSession = root.findViewById<CheckBox>(R.id.cb_clean).isChecked,
                     clientId = root.findViewById<EditText>(R.id.et_client_id).text.toString().trim(),
+                    topicPrefix = if (isNarodmon) "" else
+                        root.findViewById<EditText>(R.id.et_topic_prefix).text.toString().trim().trimEnd('/'),
                     narodmon = isNarodmon,
                     apiKey = apiKey,
                     ghUrl = if (ghOn) etGhUrl.text.toString().trim().trimEnd('/') else null,

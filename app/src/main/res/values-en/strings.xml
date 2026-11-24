@@ -97,7 +97,7 @@
     <string name="field_websocket">WebSocket</string>
     <string name="field_keep_alive">Keep Alive</string>
     <string name="field_client_id">Client ID (empty — auto)</string>
-    <string name="field_span">Panel width</string>
+    <string name="field_topic_prefix">Device topic prefix (scanner searches within it)</string>\n    <string name="field_span">Panel width</string>
     <string name="field_clean_session">Clean Session</string>
     <string name="connection_list_empty">No connections. Tap + to add one.</string>
     <string name="panel_list_empty">No panels. Tap + to add one.</string>
