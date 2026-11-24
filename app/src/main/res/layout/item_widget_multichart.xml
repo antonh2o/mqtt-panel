@@ -77,9 +77,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
-            <!-- Легенда и время — КАНВЕННАЯ плашка ChartView в левом верхнем
-                 углу поля графика (ChartView.overlayRows/overlayTimeText):
-                 рисуется ДО перекрестия, поэтому перекрестие всегда поверх -->
+            <!-- Легенда — КАНВЕННЫЕ подписи линий ChartView у их левого края
+                 (ChartView.overlayRows): рисуются ДО перекрестия, поэтому
+                 перекрестие всегда поверх. Время передачи — плашка top|end -->
+            <include
+                layout="@layout/view_card_time_overlay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="2dp"
+                android:layout_marginEnd="2dp" />
 
         </FrameLayout>
 

@@ -148,13 +148,6 @@ class ChartView @JvmOverloads constructor(
             invalidate()
         }
 
-    /** Время последней передачи — нижняя строка той же плашки (пусто — нет) */
-    var overlayTimeText: String = ""
-        set(value) {
-            field = value
-            invalidate()
-        }
-
     /** Кегль текста плашки, sp: карточка мультиграфика 12, полный экран 16 */
     var overlayTextSize: Float = 12f
         set(value) {
@@ -668,12 +661,13 @@ class ChartView @JvmOverloads constructor(
             labelMaxW = maxOf(labelMaxW, scalePaint.measureText(format(lv)))
             lv += step
         }
-        // колонка подписи оси Y — СПРАВА от поля графика (только полный экран):
-        // слева остаются значения шкалы, справа узкая полоса под повёрнутую
-        // подпись единиц; с ней согласованы ширина поля и геометрия касаний
+        // ПОДПИСИ ВЕРТИКАЛЬНОЙ ШКАЛЫ — СПРАВА от поля графика (по решению
+        // владельца): цифры уровней и повёрнутая подпись единиц живут в
+        // правой колонке, слева поле графика начинается почти от края
         val axisR = if (axisLabels) 16f * density else 0f
-        val gutter = if (showScale) labelMaxW + 4f * density else 0f
-        val w = width - gutter - axisR
+        val numZone = if (showScale) labelMaxW + 5f * density else 0f
+        val gutter = 2f * density
+        val w = width - gutter - numZone - axisR
         if (w <= 0f) return
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
@@ -704,19 +698,19 @@ class ChartView @JvmOverloads constructor(
             val gy = y(level)
             if (gy in 0f..h) {
                 canvas.drawLine(gutter, gy, gutter + w, gy, gridPaint)
-                scalePaint.textAlign = Paint.Align.RIGHT
-                canvas.drawText(format(level), gutter - 3f * density, gy + 3.5f * density, scalePaint)
-                // основной тик наружу на левом крае (matplotlib major tick)
-                if (showScale) canvas.drawLine(gutter - 3.5f * density, gy, gutter, gy, framePaint)
+                // цифра уровня — справа от поля графика (major tick тоже там)
+                scalePaint.textAlign = Paint.Align.LEFT
+                canvas.drawText(format(level), gutter + w + 3f * density, gy + 3.5f * density, scalePaint)
+                if (showScale) canvas.drawLine(gutter + w, gy, gutter + w + 3.5f * density, gy, framePaint)
             }
             level += step
         }
-        // дополнительный (minor) тик на левом крае — короче, в половине шага
+        // дополнительный (minor) тик на правом крае — короче, в половине шага
         if (showScale) {
             half = niceMin + step / 2f
             while (half < niceMax) {
                 val gy = y(half)
-                if (gy in 0f..h) canvas.drawLine(gutter - 2f * density, gy, gutter, gy, framePaint)
+                if (gy in 0f..h) canvas.drawLine(gutter + w, gy, gutter + w + 2f * density, gy, framePaint)
                 half += step
             }
         }
@@ -860,7 +854,7 @@ class ChartView @JvmOverloads constructor(
                 canvas.drawText(xLabel, gutter + w / 2f, labelY + axisH * 0.8f, timePaint)
             }
             if (yLabel.isNotBlank() && axisR > 0f) {
-                val cx = gutter + w + axisR * 0.5f
+                val cx = gutter + w + numZone + axisR * 0.5f
                 val cy = h / 2f
                 canvas.save()
                 canvas.rotate(-90f, cx, cy)
@@ -877,78 +871,114 @@ class ChartView @JvmOverloads constructor(
         layoutTMin = viewTMin
         layoutSpan = span
 
-        // Легенда поверх графика — ДО перекрестия: маркер, линия и пузырь
-        // подсказки всегда рисуются ПОВЕРХ неё (требование владельца)
-        drawOverlayPlate(canvas, gutter, w, h)
+        // Подписи линий — ДО перекрестия: маркер, линия и пузырь подсказки
+        // всегда рисуются ПОВЕРХ них (требование владельца)
+        drawOverlayLabels(canvas, gutter, w, h, ::x, ::y, viewTMin, viewTMax)
         drawTouchHighlight(canvas, gutter, w, h, viewTMin, span, ::x, ::y)
     }
 
     /**
-     * Канвенная плашка легенды в левом верхнем углу поля графика: строки серий
-     * (цветная точка, подпись, значение жирным цветом серии) и время последней
-     * передачи нижней строкой. Рисуется ДО перекрестия и при активном касании
-     * полупрозрачно приглушается — перекрестие всегда читается поверх неё.
-     * Фактическая зона пишется в overlayPlate для обхода пузырём подсказки.
+     * Подписи линий ПОВЕРХ графика у их левого края (вместо списка в плашке):
+     * каждая серия подписывается у своей линии — «1. Дома 21.4 °C» в цвете
+     * серии на полупрозрачной подложке. Рисуются ДО перекрестия и приглушаются
+     * при активном касании — перекрестие всегда читается поверх них.
+     * Подписи расставляются по вертикали без наложения (жадный разъезд).
      */
-    private fun drawOverlayPlate(canvas: Canvas, gutter: Float, w: Float, h: Float) {
-        overlayPlate.setEmpty()
-        val rows = overlayRows
-        if (rows.isEmpty() && overlayTimeText.isEmpty()) return
+    private fun drawOverlayLabels(
+        canvas: Canvas,
+        gutter: Float,
+        w: Float,
+        h: Float,
+        x: (Long) -> Float,
+        y: (Float) -> Float,
+        tMin: Long,
+        tMax: Long
+    ) {
+        if (overlayRows.isEmpty()) return
         val ts = overlayTextSize * density
         overlayTextPaint.textSize = ts
         overlayBoldPaint.textSize = ts
-        val dim = if (touchActive) 0.45f else 1f
-        val plateBg = withAlpha(
+        val dim = if (touchActive) 0.4f else 1f
+        val chipBg = withAlpha(
             if (tooltipDark) 0xFF101216.toInt() else 0xFFF7F9F5.toInt(),
-            (217 * dim).toInt()
+            (215 * dim).toInt()
         )
         val labelColor = if (tooltipDark) 0xFFEAF2E6.toInt() else 0xFF171F17.toInt()
-        val timeColor = if (tooltipDark) 0xFFC3D1BE.toInt() else 0xFF54634F.toInt()
-        val dotD = 8f * density
-        val gap = 5f * density
-        val padL = 7f * density
-        val padR = 7f * density
-        val padT = 3f * density
-        val padB = 4f * density
-        val rowH = ts + 6f * density
-        var maxW = 0f
-        rows.forEach { r ->
-            var rowW = dotD + gap + overlayTextPaint.measureText(r.label)
-            if (r.value.isNotEmpty()) rowW += 4f * density + overlayBoldPaint.measureText(r.value)
-            if (rowW > maxW) maxW = rowW
+        val padH = 5f * density
+        val padV = 2.5f * density
+        val rowH = ts + padV * 2
+
+        // точка привязки подписи — левый КРАЙ линии: первая точка серии
+        // (или интерполяция на левой границе обзора, если серия началась раньше)
+        data class Anchor(val row: OverlayRow, val px: Float, val py: Float)
+        val anchors = ArrayList<Anchor>()
+        overlayRows.forEachIndexed { idx, r ->
+            val pts = series.getOrNull(idx)?.points ?: return@forEachIndexed
+            if (pts.isEmpty()) return@forEachIndexed
+            // если серия началась раньше левой границы обзора — берём
+            // интерполированное значение прямо на границе
+            val anchorT = maxOf(firstVisibleT(pts, tMin), tMin)
+            val v = interpolateAt(pts, anchorT) ?: pts.first().v
+            val px = x(anchorT).coerceIn(gutter + 2f * density, gutter + w)
+            val py = y(v).coerceIn(0f, h)
+            anchors += Anchor(r, px, py)
         }
-        val hasTime = overlayTimeText.isNotEmpty()
-        if (hasTime) {
-            val timeW = overlayTextPaint.measureText(overlayTimeText)
-            if (timeW > maxW) maxW = timeW
-        }
-        val mx = gutter + 8f * density
-        val my = 2f * density
-        val plateW = minOf(maxW + padL + padR, w - 8f * density)
-        val plateH = padT + rows.size * rowH + (if (hasTime) ts + 4f * density else 0f) + padB
-        overlayPlate.set(mx, my, mx + plateW, my + plateH)
-        overlayPlatePaint.color = plateBg
-        canvas.drawRoundRect(overlayPlate, 8f * density, 8f * density, overlayPlatePaint)
-        var ty = my + padT + ts * 0.85f
-        rows.forEach { r ->
-            val dotCy = ty - ts * 0.3f
-            overlayDotPaint.color = r.color
-            canvas.drawCircle(mx + padL + dotD / 2, dotCy, dotD / 2, overlayDotPaint)
-            var tx = mx + padL + dotD + gap
-            overlayTextPaint.color = labelColor
-            canvas.drawText(r.label, tx, ty, overlayTextPaint)
-            if (r.value.isNotEmpty()) {
-                tx += overlayTextPaint.measureText(r.label) + 4f * density
-                overlayBoldPaint.color = r.color
-                canvas.drawText(r.value, tx, ty, overlayBoldPaint)
+        if (anchors.isEmpty()) return
+
+        // разъезд подписей по вертикали: сортируем по желаемой Y и раздвигаем
+        // так, чтобы чипы не наезжали друг на друга
+        val sorted = anchors.sortedBy { it.py }.toMutableList()
+        for (i in 1 until sorted.size) {
+            if (sorted[i].py < sorted[i - 1].py + rowH) {
+                sorted[i] = sorted[i].copy(py = sorted[i - 1].py + rowH)
             }
-            ty += rowH
         }
-        if (hasTime) {
-            overlayTextPaint.color = timeColor
-            canvas.drawText(overlayTimeText, mx + padL, ty - 4f * density + ts * 0.8f, overlayTextPaint)
+        // если уехали за нижний край — поднимаем весь блок
+        val overflow = sorted.lastOrNull()?.py?.plus(rowH / 2)?.minus(h) ?: 0f
+        if (overflow > 0f) {
+            for (i in sorted.indices) {
+                sorted[i] = sorted[i].copy(py = (sorted[i].py - overflow).coerceAtLeast(rowH / 2))
+            }
+        }
+
+        sorted.forEach { a ->
+            var tx = a.px + 6f * density
+            var text = a.row.label
+            if (a.row.value.isNotEmpty()) text += " " + a.row.value
+            var textW = overlayTextPaint.measureText(a.row.label)
+            if (a.row.value.isNotEmpty()) textW += 4f * density +
+                overlayBoldPaint.measureText(a.row.value)
+            // чип целиком НАД линией; не влезает сверху — под линией
+            var chipB = a.py - 2f * density
+            var chipT = chipB - rowH
+            if (chipT < 0f) {
+                chipT = a.py + 2f * density
+                chipB = chipT + rowH
+            }
+            val chipL = tx - padH
+            val chipR = tx + textW + padH
+            overlayPlatePaint.color = chipBg
+            canvas.drawRoundRect(chipL, chipT, chipR, chipB, 4f * density, 4f * density, overlayPlatePaint)
+            var cx = tx
+            // подпись НАД линией (кривая идёт по нижнему краю чипа);
+            // у самого верха графика — ПОД линией, чтобы не обрезалась
+            val above = chipT >= 0f
+            val textY = if (above) chipB - padV else chipT + padV + ts * 0.85f
+            overlayTextPaint.color = labelColor
+            canvas.drawText(a.row.label, cx, textY, overlayTextPaint)
+            if (a.row.value.isNotEmpty()) {
+                cx += overlayTextPaint.measureText(a.row.label) + 4f * density
+                overlayBoldPaint.color = a.row.color
+                canvas.drawText(a.row.value, cx, textY, overlayBoldPaint)
+            }
         }
     }
+
+
+    /** Первая точка серии в пределах обзора: ровно tMin, если серия началась
+     *  раньше него, иначе её собственная первая точка */
+    private fun firstVisibleT(pts: ArrayDeque<TimePoint>, tMin: Long): Long =
+        if (pts.first().t < tMin) tMin else pts.first().t
 
     /**
      * Крестовина под пальцем: вертикаль по времени, точки серий на этом моменте

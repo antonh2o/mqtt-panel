@@ -1015,9 +1015,6 @@ class WidgetAdapter(
             }
             cv.overlayRows = rows
             cv.overlayTextSize = 12f
-            cv.overlayTimeText = if (!locked && panel.showTime != false && panel.lastTime > 0) {
-                formatTime(panel.lastTime)
-            } else ""
             bindPeriodChips(panel)
             bindChartSwipe(panel)
         }

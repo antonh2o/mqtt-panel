@@ -166,7 +166,7 @@ class FullscreenChartDialog(
         if (!isMulti) {
             // одиночный график: легенды нет — время отдельной плашкой справа.
             // Мультиграфик: время — нижняя строка канвенной плашки легенды
-            // (chart.overlayTimeText, см. buildLegend/applyData)
+            // см. buildLegend/applyData)
             tvTime.setPadding(dp(8), dp(2), dp(9), dp(2))
             tvTime.background = overlayBg
             tvTime.layoutParams = android.widget.FrameLayout.LayoutParams(
@@ -312,11 +312,9 @@ class FullscreenChartDialog(
             multi.values.maxOfOrNull { it.lastOrNull()?.t ?: 0L } ?: panel.lastTime
         else single.lastOrNull()?.t ?: panel.lastTime
         val timeText = if (lastT > 0) fmt.format(java.util.Date(lastT)) else ""
-        // мультиграфик: время — нижняя строка канвенной плашки легенды;
-        // одиночный график — отдельная плашка справа (пустая не рисуется)
-        if (isMulti) chart.overlayTimeText = timeText
-        tvTime.text = if (!isMulti) timeText else ""
-        tvTime.visibility = if (!isMulti && lastT > 0) View.VISIBLE else View.GONE
+        tvTime.text = timeText
+        // пустая плашка времени не рисуется
+        tvTime.visibility = if (lastT > 0) View.VISIBLE else View.GONE
     }
 
     private fun buildLegend() {
