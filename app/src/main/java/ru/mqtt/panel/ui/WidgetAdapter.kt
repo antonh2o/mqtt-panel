@@ -168,13 +168,6 @@ class WidgetAdapter(
     }
 
     /** Значение для серии мультиграфика (panel.lastValue — последнее из любых её тем) */
-    /** Сколько мс после прихода показания держать легенду мультиграфика видимой */
-    private val LEGEND_AFTER_READING_MS = 3000L
-
-    /** panelId → до какого момента легенда мультиграфика показывается
-     *  (последнее показание + 3 с; видимость применяется в бинде) */
-    private val multiLegendUntil = mutableMapOf<Long, Long>()
-
     private fun applyMultiValue(panel: Panel, seriesIndex: Int, raw: String, time: Long = System.currentTimeMillis()) {
         // у серии свой jsonPath (JSON-темы мультиграфика)
         val series = panel.series.getOrNull(seriesIndex)
@@ -191,8 +184,6 @@ class WidgetAdapter(
         panel.lastValue = value
         multiLastSeries[panel.id] = seriesIndex
         if (time > panel.lastTime) panel.lastTime = time
-        // пришло показание: легенду поверх графика держим включённой ещё 3 с
-        multiLegendUntil[panel.id] = System.currentTimeMillis() + LEGEND_AFTER_READING_MS
         ru.mqtt.panel.data.ValueFormat.scaled(value, panel.factor)?.let { d ->
             val v = d.toFloat()
             val history = chartMultiHistory.getOrPut("${panel.id}:$seriesIndex") { mutableListOf() }
@@ -447,12 +438,6 @@ class WidgetAdapter(
         private val button: MaterialButton? = view.findViewById(R.id.btn_press)
         private val ledDot: View? = view.findViewById(R.id.led_dot)
         private val chart: ChartView? = view.findViewById(R.id.chart_view)
-        private val legend: android.widget.LinearLayout? = view.findViewById(R.id.chart_legend)
-        /** Контейнер «легенда + время» (мультиграфик): время выводится ПОД
-         *  легендой одним блоком, чтобы не наезжало на неё справа */
-        private val overlayBox: android.widget.LinearLayout? = view.findViewById(R.id.chart_overlay_box)
-        /** Отложенное скрытие легенды мультиграфика (3 с после показания) */
-        private var legendHideRun: Runnable? = null
         private val periodChips: android.widget.LinearLayout? = view.findViewById(R.id.period_chips)
         private val verticalProgress: VerticalProgressView? = view.findViewById(R.id.progress_vertical)
         private val horizontalProgress: HorizontalProgressView? = view.findViewById(R.id.progress_horizontal)
@@ -1004,139 +989,37 @@ class WidgetAdapter(
             tvValue?.visibility = View.GONE
             // Тема карточки не одна — список тем виден в легенде
             tvTopic?.visibility = View.GONE
-            buildLegend(panel)
-            // Легенда — плашка по центру верха поля графика; видна при касании
-            // графика и 3 с ПОСЛЕ ПОСЛЕДНЕГО показания (окно продлевается
-            // каждым новым значением — при частых показаниях легенда просто
-            // не гаснет). Появление/скрытие — плавным угасанием 180 мс.
-            // Время передачи — НИЖНЯЯ СТРОКА ЭТОЙ ЖЕ плашки (общий фон у
-            // chart_overlay_box): отдельной плашки времени на мультиграфике
-            // нет, поэтому гаснет и появляется оно вместе с легендой.
-            // Скрываем блок ТОЛЬКО прозрачностью, не переводя в GONE: иначе
-            // при касании геометрия ещё не успела пересчитаться (post), и
-            // пузырь перекрестия наезжал на появившуюся легенду. С alpha=0
-            // layout живёт всегда, и зона для перекрестия известна заранее.
-            var legendByTouch = false
-            fun legendShouldShow(): Boolean {
-                val until = multiLegendUntil[panel.id] ?: 0L
-                return legendByTouch || until > System.currentTimeMillis()
+            // Легенда с временем — КАНВЕННАЯ плашка ChartView в левом верхнем
+            // углу поля графика, ПОСТОЯННО видна. Рисуется ДО перекрестия,
+            // поэтому маркер/линия/пузырь всегда поверх неё; при касании
+            // ChartView сам полупрозрачно приглушает плашку. Строки серий —
+            // с текущими значениями (обновляются каждым биндом с новыми
+            // точками), время передачи — нижней строкой той же плашки
+            val rows = ArrayList<ChartView.OverlayRow>()
+            val shown = panel.series.withIndex().filter { (_, s) ->
+                s.topic.isNotBlank() || s.label.isNotBlank()
             }
-            fun refreshOverlayRect(show: Boolean) {
-                val box = overlayBox ?: return
-                // Пустая зона при скрытой плашке: иначе перекрестие зря
-                // уползало бы из невидимой области. Геометрия при этом
-                // валидна всегда — блок не переводится в GONE
-                if (!show || box.visibility != View.VISIBLE || box.height == 0) {
-                    cv.overlayTopRect.setEmpty()
-                    return
-                }
-                cv.overlayTopRect = android.graphics.RectF(
-                    box.x, box.y, box.x + box.width, box.y + box.height
-                )
-            }
-            fun applyLegendVis(animated: Boolean = true) {
-                val box = overlayBox ?: return
-                if (legend?.childCount == 0) {
-                    box.visibility = View.GONE
-                    cv.overlayTopRect.setEmpty()
-                    return
-                }
-                box.visibility = View.VISIBLE
-                val show = legendShouldShow()
-                val dur = if (animated) 180L else 0L
-                box.animate().cancel()
-                box.animate().alpha(if (show) 0.88f else 0f).setDuration(dur).start()
-                refreshOverlayRect(show)
-                // строки легенды с значениями шире одних подписей — ширина
-                // плашки меняется после layout, зону пересчитываем ещё раз
-                box.post { refreshOverlayRect(legendShouldShow()) }
-            }
-            fun armLegendHide() {
-                legendHideRun?.let { legend?.removeCallbacks(it) }
-                val delay = (multiLegendUntil[panel.id] ?: 0L) - System.currentTimeMillis()
-                if (delay > 0) {
-                    legendHideRun = Runnable { applyLegendVis() }
-                        .also { legend?.postDelayed(it, delay) }
-                }
-            }
-            cv.onChartTouch = { down ->
-                legendByTouch = down
-                applyLegendVis()
-                if (!down) armLegendHide()
-            }
-            legendByTouch = false
-            applyLegendVis(animated = false)
-            armLegendHide()
-            bindPeriodChips(panel)
-            bindChartSwipe(panel)
-        }
-
-        private fun buildLegend(panel: Panel) {
-            val lg = legend ?: return
-            val ctx = lg.context
-            val d = ctx.resources.displayMetrics.density
-            lg.removeAllViews()
-            // Легенда — плашка ПОВЕРХ графика: без серий прячем целиком,
-            // иначе видна пустая плашка фона (видимость при наличии серий
-            // решает правило «касание/3 с после показания» в бинде)
-            val visible = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() }
-            if (visible == 0) lg.visibility = View.GONE
-            panel.series.forEachIndexed { i, s ->
-                if (s.topic.isBlank() && s.label.isBlank()) return@forEachIndexed
-                val row = android.widget.LinearLayout(ctx).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    // строки вплотную: легенда не должна отбирать высоту у графика
-                    setPadding(0, 0, 0, 0)
-                }
-                val dotSize = (8 * d).toInt()
-                val dot = View(ctx)
-                dot.layoutParams = android.widget.LinearLayout.LayoutParams(dotSize, dotSize).apply {
-                    marginEnd = (5 * d).toInt()
-                }
+            shown.forEach { (i, s) ->
                 val fallback = parseColor(legendPalette[i % legendPalette.size], ChartView.DEFAULT_COLOR)
                 val color = parseColor(s.color, fallback)
-                dot.background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(color)
-                }
-                row.addView(dot)
-                // Одна строка на серию: «1. Подпись 21.4 °C» — значение тем же
-                // цветом, что и линия. На полном экране значений в легенде нет
-                // (там их показывает крупное число сверху), на карточке —
-                // это единственный показ текущих значений серий.
-                // Точки истории УЖЕ домножены на factor (см. applyMultiValue),
-                // поэтому множитель здесь не применяем — только точность.
-                val value = chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let {
-                    " " + legendValue(it.v.toString(), panel) + panel.unitSuffix
-                } ?: panel.lastValue.takeIf { it.isNotBlank() && i == (multiLastSeries[panel.id] ?: 0) }
-                    ?.let { " $it${panel.unitSuffix}" }
-                    ?: ""
-                val text = android.text.SpannableStringBuilder()
-                val numPrefix = if (visible > 1) "${i + 1}. " else ""
+                val numPrefix = if (shown.size > 1) "${i + 1}. " else ""
                 val label = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
-                text.append(label)
-                if (value.isNotEmpty()) {
-                    val start = text.length
-                    text.append(value)
-                    text.setSpan(
-                        android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
-                        start, text.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                    text.setSpan(
-                        android.text.style.ForegroundColorSpan(color),
-                        start, text.length, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                }
-                val tv = android.widget.TextView(ctx).apply {
-                    setText(text)
-                    textSize = 12f
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                }
-                row.addView(tv)
-                lg.addView(row)
+                // значение — из последней точки истории серии (точки УЖЕ
+                // домножены на factor, здесь только точность панели)
+                val value = chartMultiHistory["${panel.id}:$i"]?.lastOrNull()?.let {
+                    legendValue(it.v.toString(), panel) + panel.unitSuffix
+                } ?: panel.lastValue.takeIf {
+                    it.isNotBlank() && i == (multiLastSeries[panel.id] ?: 0)
+                }?.let { it + panel.unitSuffix } ?: ""
+                rows += ChartView.OverlayRow(color, label, value)
             }
+            cv.overlayRows = rows
+            cv.overlayTextSize = 12f
+            cv.overlayTimeText = if (!locked && panel.showTime != false && panel.lastTime > 0) {
+                formatTime(panel.lastTime)
+            } else ""
+            bindPeriodChips(panel)
+            bindChartSwipe(panel)
         }
 
         /** Число для легенды: точность панели, без повторного множителя

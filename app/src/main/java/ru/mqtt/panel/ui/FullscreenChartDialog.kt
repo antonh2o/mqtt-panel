@@ -39,10 +39,8 @@ class FullscreenChartDialog(
     private val tvValue = TextView(context)
     private val tvTime = TextView(context)
     private val chipsRow = LinearLayout(context)
-    private val legendRow = LinearLayout(context)
     /** Мультиграфик: общий блок «легенда + время» (одна плашка).
      *  Одиночный график не используется — там время своей плашкой. */
-    private val overlayBox = LinearLayout(context)
     private var currentPeriod: String = initialPanel.historyPeriod ?: "day"
     private var lastSeriesIdx: Int? = null
     private var resetChip: TextView? = null
@@ -165,23 +163,10 @@ class FullscreenChartDialog(
         }
         tvTime.textSize = 13f
         tvTime.setTextColor(textSecondary)
-        if (isMulti) {
-            overlayBox.layoutParams = android.widget.FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            ).apply { setMargins(dp(10), dp(6), dp(10), 0) }
-            overlayBox.background = overlayBg
-            overlayBox.setPadding(dp(8), dp(4), dp(8), dp(6))
-            overlayBox.orientation = LinearLayout.VERTICAL
-            overlayBox.gravity = Gravity.CENTER_HORIZONTAL
-            legendRow.setPadding(0, 0, 0, 0)
-            overlayBox.addView(legendRow)
-            tvTime.setPadding(0, dp(2), 0, 0)
-            overlayBox.addView(tvTime, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { gravity = Gravity.CENTER_HORIZONTAL })
-            chartWrap.addView(overlayBox)
-        } else {
+        if (!isMulti) {
+            // одиночный график: легенды нет — время отдельной плашкой справа.
+            // Мультиграфик: время — нижняя строка канвенной плашки легенды
+            // (chart.overlayTimeText, см. buildLegend/applyData)
             tvTime.setPadding(dp(8), dp(2), dp(9), dp(2))
             tvTime.background = overlayBg
             tvTime.layoutParams = android.widget.FrameLayout.LayoutParams(
@@ -326,77 +311,30 @@ class FullscreenChartDialog(
         val lastT = if (isMulti)
             multi.values.maxOfOrNull { it.lastOrNull()?.t ?: 0L } ?: panel.lastTime
         else single.lastOrNull()?.t ?: panel.lastTime
-        tvTime.text = if (lastT > 0) fmt.format(java.util.Date(lastT)) else ""
-        // пустая плашка времени не рисуется
-        tvTime.visibility = if (lastT > 0) View.VISIBLE else View.GONE
+        val timeText = if (lastT > 0) fmt.format(java.util.Date(lastT)) else ""
+        // мультиграфик: время — нижняя строка канвенной плашки легенды;
+        // одиночный график — отдельная плашка справа (пустая не рисуется)
+        if (isMulti) chart.overlayTimeText = timeText
+        tvTime.text = if (!isMulti) timeText else ""
+        tvTime.visibility = if (!isMulti && lastT > 0) View.VISIBLE else View.GONE
     }
 
     private fun buildLegend() {
-        legendRow.removeAllViews()
-        legendRow.orientation = LinearLayout.VERTICAL
-        // Мультиграфик: легенда внутри общей плашки, прячем/показваем ВЕСЬ
-        // блок (время — её нижняя строка). Одиночный график: легенды нет
-        legendRow.visibility = View.VISIBLE
+        // Легенда — КАНВЕННАЯ плашка ChartView в левом верхнем углу поля:
+        // рисуется ДО перекрестия, поэтому маркер/линия/пузырь всегда поверх
+        // неё. На полном экране значения серий в легенде НЕ дублируются —
+        // их показывает крупное число сверху и крестовина. Время последней
+        // передачи — нижней строкой той же плашки
+        val rows = ArrayList<ChartView.OverlayRow>()
+        val shown = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() }
         panel.series.forEachIndexed { i, s ->
             if (s.topic.isBlank() && s.label.isBlank()) return@forEachIndexed
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(3), 0, dp(3))
-            }
-            val dot = View(context).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(12), dp(12)).apply {
-                    marginEnd = dp(8)
-                }
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(parseColor(s.color, ChartView.DEFAULT_COLOR))
-                }
-            }
-            row.addView(dot)
-            row.addView(TextView(context).apply {
-                // номер серии — соответствие подсказке крестовины («1. …»).
-                // Значения в легенде НЕ дублируются: на полном экране их
-                // показывает крупное число сверху и крестовина
-                val many = panel.series.count { it.topic.isNotBlank() || it.label.isNotBlank() } > 1
-                text = (if (many) "${i + 1}. " else "") +
-                    s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
-                textSize = 16f
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                // цвет задаётся ЯВНО: у диалога тёмная тема окна, а фон —
-                // светлый, текст по умолчанию был почти не виден
-                setTextColor(textPrimary)
-            })
-            legendRow.addView(row)
+            val numPrefix = if (shown > 1) "${i + 1}. " else ""
+            val label = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
+            rows += ChartView.OverlayRow(parseColor(s.color, ChartView.DEFAULT_COLOR), label, "")
         }
-        val hasSeries = legendRow.childCount > 0
-        if (isMulti) {
-            // Плашка нужна, если есть ХОТЯ БЫ строки серий или время:
-            // без серий (все темы пустые) показываем только время
-            overlayBox.visibility =
-                if (hasSeries || tvTime.visibility == View.VISIBLE) View.VISIBLE else View.GONE
-            refreshOverlayRect()
-            // при первом бинде высота блока ещё нулевая (layout не прошёл) —
-            // зону перекрестия пересчитываем после layout
-            overlayBox.post { refreshOverlayRect() }
-        } else if (!hasSeries) {
-            overlayBox.visibility = View.GONE
-            chart.overlayTopRect.setEmpty()
-        }
-    }
-
-    /** Зона, которую обходит пузырь перекрестия: на мультиграфике — ВЕСЬ
-     *  блок «легенда + время», на одиночном графике легенды нет */
-    private fun refreshOverlayRect() {
-        val anchor = if (isMulti) overlayBox else legendRow
-        if (anchor.visibility != View.VISIBLE || anchor.height == 0) {
-            chart.overlayTopRect.setEmpty()
-            return
-        }
-        chart.overlayTopRect = android.graphics.RectF(
-            anchor.x, anchor.y, anchor.x + anchor.width, anchor.y + anchor.height
-        )
+        chart.overlayRows = rows
+        chart.overlayTextSize = 16f
     }
 
     private fun fmtValue(v: Float): String {

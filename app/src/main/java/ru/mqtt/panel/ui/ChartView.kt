@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.ScaleGestureDetector
 import android.view.View
@@ -134,14 +135,40 @@ class ChartView @JvmOverloads constructor(
     /** Вызывается при изменении масштаба: true — приближено, false — весь период */
     var onZoomChanged: ((Boolean) -> Unit)? = null
 
-    /** Палец опустился/поднялся на графике: карточка мультиграфика показывает
-     *  легенду поверх кривых, пока пользователь держит палец */
-    var onChartTouch: ((Boolean) -> Unit)? = null
+    /** Строка легенды поверх графика: цвет точки/значения, подпись серии
+     *  и её текущее значение (может быть пустым — показывается только подпись) */
+    data class OverlayRow(val color: Int, val label: String, val value: String)
 
-    /** Зона плашки легенды поверх графика (координаты ChartView): пузырь
-     *  перекрестия опускается ПОД неё, если наезжает по горизонтали,
-     *  и не перекрывается */
-    var overlayTopRect = android.graphics.RectF()
+    /** Строки легенды в плашке в левом верхнем углу поля графика.
+     *  Плашка рисуется на канве ДО перекрестия — маркер, линия и пузырь
+     *  подсказки всегда ПОВЕРХ неё (требование владельца). Пусто — плашки нет */
+    var overlayRows: List<OverlayRow> = emptyList()
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** Время последней передачи — нижняя строка той же плашки (пусто — нет) */
+    var overlayTimeText: String = ""
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** Кегль текста плашки, sp: карточка мультиграфика 12, полный экран 16 */
+    var overlayTextSize: Float = 12f
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    /** Фактическая зона плашки (заполняется при отрисовке): пузырь
+     *  перекрестия сдвигается в свободную зону рядом и её не накрывает */
+    private val overlayPlate = android.graphics.RectF()
+
+    /** Активно касание графика — плашка полупрозрачно приглушается,
+     *  чтобы линия/маркер/пузырь перекрестия читались поверх неё */
+    private var touchActive = false
 
     private val density = resources.displayMetrics.density
 
@@ -168,6 +195,21 @@ class ChartView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = 1f * density
         color = withAlpha(NEUTRAL_COLOR, 130)
+    }
+
+    /** Канвенная плашка легенды: подписи серий, время последней передачи */
+    private val overlayTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 12f * density
+    }
+    private val overlayBoldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 12f * density
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    private val overlayDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val overlayPlatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
     }
 
     /** Дополнительная (minor) сетка: тоньше и бледнее основной, сплошная */
@@ -364,7 +406,8 @@ class ChartView @JvmOverloads constructor(
                 downY = event.y
                 swipeArmed = false
                 scaleWasActive = false
-                onChartTouch?.invoke(true)
+                touchActive = true
+                invalidate()
                 // крестовину НЕ показываем сразу: короткое касание-«протяжка»
                 // не должно мелькать значением — разделение жестов честное:
                 // удержание/ведение = крестовина, резкий широкий жест = свайп
@@ -399,7 +442,8 @@ class ChartView @JvmOverloads constructor(
                 return true
             }
             android.view.MotionEvent.ACTION_UP -> {
-                onChartTouch?.invoke(false)
+                touchActive = false
+                invalidate()
                 if (scaleWasActive) {
                     scaleWasActive = false
                     parent?.requestDisallowInterceptTouchEvent(false)
@@ -427,7 +471,8 @@ class ChartView @JvmOverloads constructor(
                 scaleWasActive = false
                 touchT = null
                 invalidate()
-                onChartTouch?.invoke(false)
+                touchActive = false
+                invalidate()
                 parent?.requestDisallowInterceptTouchEvent(false)
                 return false
             }
@@ -623,10 +668,12 @@ class ChartView @JvmOverloads constructor(
             labelMaxW = maxOf(labelMaxW, scalePaint.measureText(format(lv)))
             lv += step
         }
-        // колонка подписи оси Y — левее меток шкалы (только полный экран)
-        val axisW = if (axisLabels) 11f * density else 0f
-        val gutter = if (showScale) labelMaxW + 4f * density + axisW else 0f
-        val w = width - gutter
+        // колонка подписи оси Y — СПРАВА от поля графика (только полный экран):
+        // слева остаются значения шкалы, справа узкая полоса под повёрнутую
+        // подпись единиц; с ней согласованы ширина поля и геометрия касаний
+        val axisR = if (axisLabels) 16f * density else 0f
+        val gutter = if (showScale) labelMaxW + 4f * density else 0f
+        val w = width - gutter - axisR
         if (w <= 0f) return
         val topPad = if (showScale) 10f * density else 4f
         val usableH = h - topPad - 4f * density
@@ -806,14 +853,14 @@ class ChartView @JvmOverloads constructor(
         }
 
         // ПОДПИСИ ОСЕЙ (полный экран): X — «Время» по центру под метками,
-        // Y — единицы измерения повёрнутой строкой слева от шкалы
+        // Y — единицы измерения повёрнутой строкой СПРАВА от поля графика
         if (axisLabels) {
             if (xLabel.isNotBlank()) {
                 timePaint.textAlign = Paint.Align.CENTER
                 canvas.drawText(xLabel, gutter + w / 2f, labelY + axisH * 0.8f, timePaint)
             }
-            if (yLabel.isNotBlank()) {
-                val cx = axisW * 0.62f
+            if (yLabel.isNotBlank() && axisR > 0f) {
+                val cx = gutter + w + axisR * 0.5f
                 val cy = h / 2f
                 canvas.save()
                 canvas.rotate(-90f, cx, cy)
@@ -830,7 +877,77 @@ class ChartView @JvmOverloads constructor(
         layoutTMin = viewTMin
         layoutSpan = span
 
+        // Легенда поверх графика — ДО перекрестия: маркер, линия и пузырь
+        // подсказки всегда рисуются ПОВЕРХ неё (требование владельца)
+        drawOverlayPlate(canvas, gutter, w, h)
         drawTouchHighlight(canvas, gutter, w, h, viewTMin, span, ::x, ::y)
+    }
+
+    /**
+     * Канвенная плашка легенды в левом верхнем углу поля графика: строки серий
+     * (цветная точка, подпись, значение жирным цветом серии) и время последней
+     * передачи нижней строкой. Рисуется ДО перекрестия и при активном касании
+     * полупрозрачно приглушается — перекрестие всегда читается поверх неё.
+     * Фактическая зона пишется в overlayPlate для обхода пузырём подсказки.
+     */
+    private fun drawOverlayPlate(canvas: Canvas, gutter: Float, w: Float, h: Float) {
+        overlayPlate.setEmpty()
+        val rows = overlayRows
+        if (rows.isEmpty() && overlayTimeText.isEmpty()) return
+        val ts = overlayTextSize * density
+        overlayTextPaint.textSize = ts
+        overlayBoldPaint.textSize = ts
+        val dim = if (touchActive) 0.45f else 1f
+        val plateBg = withAlpha(
+            if (tooltipDark) 0xFF101216.toInt() else 0xFFF7F9F5.toInt(),
+            (217 * dim).toInt()
+        )
+        val labelColor = if (tooltipDark) 0xFFEAF2E6.toInt() else 0xFF171F17.toInt()
+        val timeColor = if (tooltipDark) 0xFFC3D1BE.toInt() else 0xFF54634F.toInt()
+        val dotD = 8f * density
+        val gap = 5f * density
+        val padL = 7f * density
+        val padR = 7f * density
+        val padT = 3f * density
+        val padB = 4f * density
+        val rowH = ts + 6f * density
+        var maxW = 0f
+        rows.forEach { r ->
+            var rowW = dotD + gap + overlayTextPaint.measureText(r.label)
+            if (r.value.isNotEmpty()) rowW += 4f * density + overlayBoldPaint.measureText(r.value)
+            if (rowW > maxW) maxW = rowW
+        }
+        val hasTime = overlayTimeText.isNotEmpty()
+        if (hasTime) {
+            val timeW = overlayTextPaint.measureText(overlayTimeText)
+            if (timeW > maxW) maxW = timeW
+        }
+        val mx = gutter + 8f * density
+        val my = 2f * density
+        val plateW = minOf(maxW + padL + padR, w - 8f * density)
+        val plateH = padT + rows.size * rowH + (if (hasTime) ts + 4f * density else 0f) + padB
+        overlayPlate.set(mx, my, mx + plateW, my + plateH)
+        overlayPlatePaint.color = plateBg
+        canvas.drawRoundRect(overlayPlate, 8f * density, 8f * density, overlayPlatePaint)
+        var ty = my + padT + ts * 0.85f
+        rows.forEach { r ->
+            val dotCy = ty - ts * 0.3f
+            overlayDotPaint.color = r.color
+            canvas.drawCircle(mx + padL + dotD / 2, dotCy, dotD / 2, overlayDotPaint)
+            var tx = mx + padL + dotD + gap
+            overlayTextPaint.color = labelColor
+            canvas.drawText(r.label, tx, ty, overlayTextPaint)
+            if (r.value.isNotEmpty()) {
+                tx += overlayTextPaint.measureText(r.label) + 4f * density
+                overlayBoldPaint.color = r.color
+                canvas.drawText(r.value, tx, ty, overlayBoldPaint)
+            }
+            ty += rowH
+        }
+        if (hasTime) {
+            overlayTextPaint.color = timeColor
+            canvas.drawText(overlayTimeText, mx + padL, ty - 4f * density + ts * 0.8f, overlayTextPaint)
+        }
     }
 
     /**
@@ -898,19 +1015,20 @@ class ChartView @JvmOverloads constructor(
         // Пузырь живёт У ВЕРХА графика и НЕ НАКРЫВАЕТ плашку легенды: если
         // наезжает на неё по горизонтали — сдвигаем в свободную зону слева
         // или справа от плашки (по-прежнему у верха). Под плашку опускаемся
-        // только когда по бокам пузырь не влезает
+        // только когда по бокам пузырь не влезает. Пузырь рисуется ПОСЛЕ
+        // плашки, поэтому даже в этом случае перекрестие поверх легенды
         var by = 2f * density
-        if (!overlayTopRect.isEmpty &&
-            bx < overlayTopRect.right && bx + boxW > overlayTopRect.left
+        if (!overlayPlate.isEmpty &&
+            bx < overlayPlate.right && bx + boxW > overlayPlate.left
         ) {
-            val freeL = overlayTopRect.left - gutter
-            val freeR = (gutter + w) - overlayTopRect.right
+            val freeL = overlayPlate.left - gutter
+            val freeR = (gutter + w) - overlayPlate.right
             when {
-                boxW <= freeL -> bx = (overlayTopRect.left - boxW - 4f * density)
+                boxW <= freeL -> bx = (overlayPlate.left - boxW - 4f * density)
                     .coerceIn(gutter, max(gutter, gutter + w - boxW))
-                boxW <= freeR -> bx = (overlayTopRect.right + 4f * density)
+                boxW <= freeR -> bx = (overlayPlate.right + 4f * density)
                     .coerceIn(gutter, max(gutter, gutter + w - boxW))
-                else -> by = overlayTopRect.bottom + 2f * density
+                else -> by = overlayPlate.bottom + 2f * density
             }
         }
         // ФИНАЛЬНАЯ ГАРАНТИЯ: пузырь обязан оставаться ПОВЕРХУ поля, но не
@@ -918,10 +1036,10 @@ class ChartView @JvmOverloads constructor(
         // всё же осталось (узкое поле, широкая плашка) — опускаем под плашку,
         // а по горизонтали сжимаем к свободному краю; за пределы поля не
         // выпускаем ни по X, ни по Y
-        if (!overlayTopRect.isEmpty) {
-            if (by < overlayTopRect.bottom &&
-                bx < overlayTopRect.right && bx + boxW > overlayTopRect.left
-            ) by = overlayTopRect.bottom + 2f * density
+        if (!overlayPlate.isEmpty) {
+            if (by < overlayPlate.bottom &&
+                bx < overlayPlate.right && bx + boxW > overlayPlate.left
+            ) by = overlayPlate.bottom + 2f * density
             val maxBy = h - boxH - 1f
             if (by > maxBy) by = maxBy.coerceAtLeast(0f)
             bx = bx.coerceIn(gutter, max(gutter, gutter + w - boxW))

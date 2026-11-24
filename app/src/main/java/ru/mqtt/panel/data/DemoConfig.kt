@@ -132,7 +132,7 @@ object DemoConfig {
             // demo=true: у графиков работают чипы периодов — история
             // синтезируется DemoHistory, без Народмона и Grafana
             panel("🌡 Климат", WidgetType.CHART, "$p/$S_HOME_T") {
-                span = 3; chartPoints = 120
+                span = 3; chartPoints = 120; unitSuffix = " °C"
                 sliderMin = 20.0; sliderMax = 28.0
                 colorMin = "#42A5F5"; colorMid = "#66BB6A"; colorMax = "#EF5350"
                 demo = true

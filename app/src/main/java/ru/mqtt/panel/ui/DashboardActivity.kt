@@ -1148,12 +1148,11 @@ class DashboardActivity : AppCompatActivity() {
         for (panel in chartPanels) {
             val period = panel.historyPeriod ?: "day"
             if (panel.type == WidgetType.MULTI_CHART) {
+                // пересев при КАЖДОМ открытии дашборда: у демо нет настоящей
+                // истории, и 2-3 живые точки издателя не должны его подменять.
+                // База серии — её последнее живое значение (шов бесшовный)
                 val existing = widgetAdapter.multiPointsOf(panel.id)
-                val seeded = panel.series.indices.any { i ->
-                    (existing[i]?.size ?: 0) > 1
-                }
-                if (seeded) continue
-                // база серии — её последнее живое значение, иначе таблица демо
+                widgetAdapter.clearMultiHistory(panel.id)
                 val defaults = floatArrayOf(21.5f, 4.0f, 45f, 650f)
                 panel.series.indices.forEach { i ->
                     val base = existing[i]?.lastOrNull()?.v
@@ -1164,7 +1163,7 @@ class DashboardActivity : AppCompatActivity() {
                         pts.map { ChartView.TimePoint(it.t, it.v) })
                 }
             } else {
-                if (widgetAdapter.hasHistory(panel.id, false)) continue
+                // база — последнее живое значение (если уже пришло)
                 val base = widgetAdapter.chartPointsOf(panel.id).lastOrNull()?.v
                     ?: panel.lastValue.toFloatOrNull()
                     ?: 21.5f
