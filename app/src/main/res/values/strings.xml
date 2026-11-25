@@ -305,6 +305,7 @@
     <string name="mqtt_share_published">Конфиг опубликован в MQTT</string>
     <string name="mqtt_share_publish_failed">Публикация не удалась: %1$s</string>
     <string name="mqtt_share_found">Найдено конфигов: %1$d</string>
+    <string name="mqtt_share_collecting">Ищу конфиги в MQTT (10 секунд)…</string>
     <string name="mqtt_share_none_found">Конфигов в MQTT не найдено</string>
     <string name="mqtt_share_imported">Конфигурация из MQTT применена</string>
     <string name="mqtt_share_wrong_pass">Неверный пароль шифрования</string>

@@ -412,7 +412,7 @@ class MainActivity : AppCompatActivity() {
                 return@launch
             }
             Toast.makeText(this@MainActivity,
-                getString(R.string.mqtt_share_found, 0), Toast.LENGTH_SHORT).show()
+                R.string.mqtt_share_collecting, Toast.LENGTH_SHORT).show()
             val received = ru.mqtt.panel.data.MqttConfigShare.collectConfigs(conn, 10)
                 .filter { (topic, _) -> !topic.contains(shareDevId()) }
             if (received.isEmpty()) {

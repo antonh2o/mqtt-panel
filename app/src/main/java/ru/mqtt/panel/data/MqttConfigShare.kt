@@ -38,8 +38,14 @@ object MqttConfigShare {
 
     fun topicPerDevice(devId: String): String = "mqttpanel/$devId/share/config"
 
-    /** Топик(и) для подписки при импорте: + ловит и per-device, и общий */
-    const val SUBSCRIBE_FILTER = "mqttpanel/+/share/config"
+    /**
+     * Фильтры подписки при импорте. ВАЖНО: '+' в MQTT матчит РОВНО ОДИН
+     * уровень, поэтому «mqttpanel/+/share/config» НЕ ловит общий топик
+     * «mqttpanel/share/config» (в нём нет уровня id) — из-за этого конфиг,
+     * опубликованный в общий топик, импортёром не находился. Общий топик
+     * подписывается отдельным фильтром.
+     */
+    val SUBSCRIBE_FILTERS = arrayOf("mqttpanel/+/share/config", TOPIC_COMMON)
 
     const val ENC_NONE = "none"
     const val ENC_AES = "aes"
@@ -225,7 +231,7 @@ object MqttConfigShare {
                 override fun deliveryComplete(token: org.eclipse.paho.client.mqttv3.IMqttDeliveryToken?) {}
             })
             client.connect(opts)
-            client.subscribe(SUBSCRIBE_FILTER, 1)
+            client.subscribe(SUBSCRIBE_FILTERS, IntArray(SUBSCRIBE_FILTERS.size) { 1 })
             kotlinx.coroutines.delay(seconds * 1000L)
             client.disconnect()
             received

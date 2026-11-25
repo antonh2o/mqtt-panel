@@ -302,6 +302,7 @@
     <string name="mqtt_share_published">Config published to MQTT</string>
     <string name="mqtt_share_publish_failed">Publish failed: %1$s</string>
     <string name="mqtt_share_found">Configs found: %1$d</string>
+    <string name="mqtt_share_collecting">Looking for configs in MQTT (10 seconds)…</string>
     <string name="mqtt_share_none_found">No configs found in MQTT</string>
     <string name="mqtt_share_imported">Config from MQTT applied</string>
     <string name="mqtt_share_wrong_pass">Wrong encryption password</string>
