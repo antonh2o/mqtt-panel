@@ -246,6 +246,9 @@
     <string name="sensor_loading">Loading sensors…</string>
     <string name="field_api_key">Narodmon API key (personal)</string>
     <string name="narodmon_need_key">Enter your Narodmon API key („My applications" on narodmon.ru)</string>
+    <string name="nm_allow_insecure_http">Allow HTTP if HTTPS is blocked</string>
+    <string name="nm_allow_insecure_http_hint">The API key will be sent in cleartext — enable only on a network you trust.</string>
+    <string name="nm_https_blocked">Narodmon: the network blocks HTTPS. Enable \"Allow HTTP\" in the connection settings</string>
     <string name="field_sensor">Sensor (ID)</string>
     <string name="field_show_time">Show update time</string>
     <string name="color_range_title">Value color</string>

@@ -78,6 +78,31 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- HTTP-фолбэк: некоторые сети блокируют 443 до api.narodmon.ru,
+             но по HTTP ключ API идёт открытым текстом — по умолчанию выключено -->
+        <LinearLayout
+            android:id="@+id/layout_nm_http"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/cb_nm_insecure_http"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/nm_allow_insecure_http" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/nm_allow_insecure_http_hint"
+                android:textColor="?android:attr/textColorSecondary"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
         <!-- userLogon без hash = регистрация в проекте по email: платформа
              высылает пароль участника, его остаётся вписать в поле «Пароль».
              Рядом — выход из аккаунта (userLogout) -->

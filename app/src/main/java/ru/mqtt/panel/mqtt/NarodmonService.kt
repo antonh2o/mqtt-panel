@@ -106,6 +106,17 @@ class NarodmonService : Service() {
         createNotificationChannel()
     }
 
+    /**
+     * Страховка от 6-часового лимита dataSync на Android 15+: сервис объявлен
+     * specialUse (лимита нет), но если система всё же считает его dataSync —
+     * останавливаемся сами, не давая процессу упасть.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        ImportLog.write(this, "NarodmonService: FGS timeout (type=$fgsType) — останавливаюсь")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
@@ -209,6 +220,9 @@ class NarodmonService : Service() {
                 // причина в журнал: пользователь без adb увидит её в mqtt-import.log
                 ImportLog.write(applicationContext, "NARODMON poll failed: ${e.javaClass.simpleName}: ${e.message}")
                 Log.w(TAG, "poll failed", e)
+                // HTTPS заблокирован, а HTTP-фолбэк выключен: без подсказки это
+                // выглядит как «Народмон сломался» — говорим тостом (не чаще 30 мин)
+                if (e.message?.contains("HTTP-фолбэк выключен") == true) notifyHttpsBlocked()
                 connectionState = ConnectionState.CONNECTING
                 broadcastStatus(ConnectionState.CONNECTING)
             } finally {
@@ -219,6 +233,9 @@ class NarodmonService : Service() {
 
     /** Время последней попытки форс-логина — троттлинг повторных входов при 401 */
     private var lastForceLogon = 0L
+
+    /** Когда последний раз показывали подсказку про HTTP-фолбэк (не чаще 30 мин) */
+    private var lastHttpsNoticeAt = 0L
 
     /** Когда последний раз тянули sensorsOnDevice (доп. запрос к лимиту 3/мин) */
     private var lastOnDeviceAt = 0L
@@ -368,6 +385,21 @@ class NarodmonService : Service() {
             min < 48 * 60 -> "${min / 60} ч ${min % 60} мин"
             else -> "${min / (24 * 60)} сут"
         }
+    }
+
+    /**
+     * Подсказка на дашборд: сеть блокирует HTTPS до api.narodmon.ru, а
+     * HTTP-фолбэк выключен. Троттлинг 30 минут — опрос идёт каждую минуту.
+     */
+    private fun notifyHttpsBlocked() {
+        val now = System.currentTimeMillis()
+        if (now - lastHttpsNoticeAt < 30 * 60_000L) return
+        lastHttpsNoticeAt = now
+        val intent = Intent(MqttService.BROADCAST_STATUS).apply {
+            putExtra(MqttService.EXTRA_STATUS, "error:" + getString(R.string.nm_https_blocked))
+            putExtra(MqttService.EXTRA_CONNECTION_ID, connection?.id ?: -1L)
+        }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
     }
 
     private fun broadcastStatus(state: ConnectionState) {

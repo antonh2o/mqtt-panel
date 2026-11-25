@@ -137,7 +137,13 @@ class ChartView @JvmOverloads constructor(
 
     /** Строка легенды поверх графика: цвет точки/значения, подпись серии
      *  и её текущее значение (может быть пустым — показывается только подпись) */
-    data class OverlayRow(val color: Int, val label: String, val value: String)
+    data class OverlayRow(
+        val color: Int,
+        val label: String,
+        val value: String,
+        /** индекс серии в ChartView; -1 — совпадает с позицией строки */
+        val seriesIndex: Int = -1
+    )
 
     /** Строки легенды в плашке в левом верхнем углу поля графика.
      *  Плашка рисуется на канве ДО перекрестия — маркер, линия и пузырь
@@ -148,7 +154,7 @@ class ChartView @JvmOverloads constructor(
             invalidate()
         }
 
-    /** Кегль текста плашки, sp: карточка мультиграфика 12, полный экран 16 */
+    /** Кегль текста плашки, sp: карточка мультиграфика 13, полный экран 17 */
     var overlayTextSize: Float = 12f
         set(value) {
             field = value
@@ -203,6 +209,12 @@ class ChartView @JvmOverloads constructor(
     }
     private val overlayPlatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
+    }
+
+    /** Тонкая рамка чипа легенды цветом серии — строка читается как «своя» */
+    private val overlayBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 1f * density
     }
 
     /** Дополнительная (minor) сетка: тоньше и бледнее основной, сплошная */
@@ -895,17 +907,24 @@ class ChartView @JvmOverloads constructor(
         tMax: Long
     ) {
         if (overlayRows.isEmpty()) return
-        val ts = overlayTextSize * density
+        val padH = 6f * density
+        val padV = 3f * density
+        // На узкой карточке 3–4 подписи по 13sp не влезают в 104dp: ужимаем
+        // кегль под высоту поля (минимум 9sp), иначе нижние чипы не видны.
+        val baseTs = overlayTextSize * density
+        val fitTs = (h - 6f * density) / overlayRows.size - 2f * padV
+        val ts = minOf(baseTs, fitTs.coerceAtLeast(9f * density))
         overlayTextPaint.textSize = ts
         overlayBoldPaint.textSize = ts
         val dim = if (touchActive) 0.4f else 1f
+        // Подложка НЕПРОЗРАЧНАЯ (255): сетка и кривые под чипом не просвечивают
+        // и не мешают читать подпись. При касании плашка гаснет, чтобы
+        // перекрестие и пузырь подсказки оставались главными.
         val chipBg = withAlpha(
             if (tooltipDark) 0xFF101216.toInt() else 0xFFF7F9F5.toInt(),
-            (215 * dim).toInt()
+            (255 * dim).toInt()
         )
         val labelColor = if (tooltipDark) 0xFFEAF2E6.toInt() else 0xFF171F17.toInt()
-        val padH = 5f * density
-        val padV = 2.5f * density
         val rowH = ts + padV * 2
 
         // точка привязки подписи — левый КРАЙ линии: первая точка серии
@@ -913,7 +932,10 @@ class ChartView @JvmOverloads constructor(
         data class Anchor(val row: OverlayRow, val px: Float, val py: Float)
         val anchors = ArrayList<Anchor>()
         overlayRows.forEachIndexed { idx, r ->
-            val pts = series.getOrNull(idx)?.points ?: return@forEachIndexed
+            // строка может быть не «по порядку»: серия без подписи/темы не
+            // попадает в легенду, и позиция строки уже не равна индексу серии
+            val si = if (r.seriesIndex >= 0) r.seriesIndex else idx
+            val pts = series.getOrNull(si)?.points ?: return@forEachIndexed
             if (pts.isEmpty()) return@forEachIndexed
             // если серия началась раньше левой границы обзора — берём
             // интерполированное значение прямо на границе
@@ -925,53 +947,83 @@ class ChartView @JvmOverloads constructor(
         }
         if (anchors.isEmpty()) return
 
-        // разъезд подписей по вертикали: сортируем по желаемой Y и раздвигаем
-        // так, чтобы чипы не наезжали друг на друга
-        val sorted = anchors.sortedBy { it.py }.toMutableList()
-        for (i in 1 until sorted.size) {
-            if (sorted[i].py < sorted[i - 1].py + rowH) {
-                sorted[i] = sorted[i].copy(py = sorted[i - 1].py + rowH)
-            }
+        // Чипы ставим БЛОКОМ сверху вниз: над своей линией, но без наезда
+        // на предыдущий чип. Раньше при нехватке места сверху чип
+        // «переворачивался» под линию и накрывал следующий — подписи
+        // обрезались (скриншот 590×1280, мультиграфик «Температура»).
+        val sorted = anchors.sortedBy { it.py }
+        val chipTops = FloatArray(sorted.size)
+        var prevBottom = -1e9f
+        sorted.forEachIndexed { i, a ->
+            var top = (a.py - 3f * density) - rowH
+            if (top < prevBottom + 2f * density) top = prevBottom + 2f * density
+            if (top < 0f) top = 0f
+            chipTops[i] = top
+            prevBottom = top + rowH
         }
-        // если уехали за нижний край — поднимаем весь блок
-        val overflow = sorted.lastOrNull()?.py?.plus(rowH / 2)?.minus(h) ?: 0f
+        // блок вылез за нижний край — поднимаем целиком
+        val overflow = (chipTops.lastOrNull() ?: 0f) + rowH - h
         if (overflow > 0f) {
-            for (i in sorted.indices) {
-                sorted[i] = sorted[i].copy(py = (sorted[i].py - overflow).coerceAtLeast(rowH / 2))
-            }
+            val shift = minOf(overflow, chipTops.firstOrNull() ?: 0f)
+            for (i in chipTops.indices) chipTops[i] -= shift
         }
 
-        sorted.forEach { a ->
+        sorted.forEachIndexed { idx, a ->
             var tx = a.px + 6f * density
-            var text = a.row.label
-            if (a.row.value.isNotEmpty()) text += " " + a.row.value
             var textW = overlayTextPaint.measureText(a.row.label)
             if (a.row.value.isNotEmpty()) textW += 4f * density +
                 overlayBoldPaint.measureText(a.row.value)
-            // чип целиком НАД линией; не влезает сверху — под линией
-            var chipB = a.py - 2f * density
-            var chipT = chipB - rowH
-            if (chipT < 0f) {
-                chipT = a.py + 2f * density
-                chipB = chipT + rowH
+            val chipT = chipTops[idx]
+            val chipB = chipT + rowH
+            // не выпускаем чип за правый край поля: у правой серии на узкой
+            // карточке обрезалась единица измерения
+            val right = gutter + w
+            var chipL = tx - padH
+            var chipR = tx + textW + padH
+            if (chipR > right) {
+                val shift = chipR - right
+                chipL -= shift
+                chipR -= shift
+                tx -= shift
             }
-            val chipL = tx - padH
-            val chipR = tx + textW + padH
+            val radius = 5f * density
             overlayPlatePaint.color = chipBg
-            canvas.drawRoundRect(chipL, chipT, chipR, chipB, 4f * density, 4f * density, overlayPlatePaint)
+            canvas.drawRoundRect(chipL, chipT, chipR, chipB, radius, radius, overlayPlatePaint)
+            // тонкая рамка цветом серии: даже беглая строка узнаётся по цвету
+            overlayBorderPaint.color = withAlpha(a.row.color, (170 * dim).toInt())
+            canvas.drawRoundRect(chipL, chipT, chipR, chipB, radius, radius, overlayBorderPaint)
             var cx = tx
-            // подпись НАД линией (кривая идёт по нижнему краю чипа);
-            // у самого верха графика — ПОД линией, чтобы не обрезалась
-            val above = chipT >= 0f
-            val textY = if (above) chipB - padV else chipT + padV + ts * 0.85f
+            // текст прижат к низу чипа
+            val textY = chipB - padV
             overlayTextPaint.color = labelColor
             canvas.drawText(a.row.label, cx, textY, overlayTextPaint)
             if (a.row.value.isNotEmpty()) {
                 cx += overlayTextPaint.measureText(a.row.label) + 4f * density
-                overlayBoldPaint.color = a.row.color
+                overlayBoldPaint.color = legendValueColor(a.row.color, tooltipDark)
                 canvas.drawText(a.row.value, cx, textY, overlayBoldPaint)
             }
         }
+    }
+
+    /**
+     * Цвет значения в легенде — цвет линии, подтянутый по контрасту к плашке:
+     * светло-салатовый/жёлтый на светлой плашке не читался. Оттенок
+     * сохраняется, меняется только яркость.
+     */
+    private fun legendValueColor(color: Int, darkPlate: Boolean): Int {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        val lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255f
+        val mix = if (darkPlate) {
+            ((0.42f - lum).coerceAtLeast(0f) / 0.42f) * 0.5f
+        } else {
+            ((lum - 0.6f).coerceAtLeast(0f) / 0.4f) * 0.55f
+        }
+        if (mix <= 0.01f) return color
+        val target = if (darkPlate) 255 else 0
+        fun channel(c: Int) = (c + (target - c) * mix).toInt().coerceIn(0, 255)
+        return Color.rgb(channel(r), channel(g), channel(b))
     }
 
 

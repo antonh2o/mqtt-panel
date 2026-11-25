@@ -217,6 +217,18 @@ class MqttService : Service() {
         createNotificationChannel()
     }
 
+    /**
+     * Android 15+: у dataSync-FGS есть лимит 6 ч/24 ч, после которого система
+     * требует остановиться, иначе роняет процесс с
+     * ForegroundServiceDidNotStopInTimeException. Сервис объявлен specialUse
+     * (лимита нет), но страховка нужна на случай прошивок/старых манифестов.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        ImportLog.write(this, "MqttService: FGS timeout (type=$fgsType) — останавливаюсь")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {

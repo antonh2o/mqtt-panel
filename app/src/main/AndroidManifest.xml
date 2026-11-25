@@ -5,11 +5,18 @@
     <!-- установка скачанного APK-обновления (разрешение выдаёт пользователь) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Сервисы живут сутками (MQTT-соединение и минутный опрос Народмона),
+         поэтому это НЕ dataSync: на Android 15+ dataSync-FGS принудительно
+         останавливается через 6 часов в сутки, и панель «умирает» до
+         следующего открытия приложения. specialUse таким лимитом не ограничен. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- config.json хранит пароли брокеров и API-ключ Народмона: в облачный
+         автобэкап Android и при переносе на другое устройство они попадать
+         не должны (своя копия — экспорт в файл / Яндекс Диск). -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -37,17 +44,27 @@
             android:name=".ui.DashboardActivity"
             android:exported="false" />
 
+        <!-- specialUse вместо dataSync: лимита 6 ч/сутки нет, панель может
+             держать соединение и опрос круглосуточно -->
         <service
             android:name=".mqtt.MqttService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="постоянное MQTT-соединение панели умного дома" />
+        </service>
 
         <service
             android:name=".mqtt.NarodmonService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="минутный опрос датчиков Народного Мониторинга" />
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -242,6 +242,7 @@ class ConnectionListFragment : Fragment() {
         val root = LayoutInflater.from(requireContext())
             .inflate(R.layout.dialog_connection, null)
         val cbNarodmon = root.findViewById<CheckBox>(R.id.cb_narodmon)
+        val cbNmHttp = root.findViewById<CheckBox>(R.id.cb_nm_insecure_http)
         val layoutMqtt = root.findViewById<View>(R.id.layout_mqtt)
         val etHost = root.findViewById<EditText>(R.id.et_host)
 
@@ -263,6 +264,8 @@ class ConnectionListFragment : Fragment() {
             root.findViewById<View>(R.id.layout_api_key).visibility =
                 if (checked) View.VISIBLE else View.GONE
             root.findViewById<View>(R.id.layout_nm_account).visibility =
+                if (checked) View.VISIBLE else View.GONE
+            root.findViewById<View>(R.id.layout_nm_http).visibility =
                 if (checked) View.VISIBLE else View.GONE
             layoutGh.visibility = if (checked) View.GONE else View.VISIBLE
             if (checked && etHost.text.isBlank()) etHost.setText("api.narodmon.ru")
@@ -352,6 +355,7 @@ class ConnectionListFragment : Fragment() {
             root.findViewById<EditText>(R.id.et_topic_prefix).setText(conn.topicPrefix)
             cbNarodmon.isChecked = conn.narodmon
             root.findViewById<EditText>(R.id.et_api_key).setText(conn.apiKey)
+            cbNmHttp.isChecked = NarodmonApi.allowInsecureHttp(requireContext())
             root.findViewById<CheckBox>(R.id.cb_ssl).isChecked = conn.ssl
             root.findViewById<CheckBox>(R.id.cb_websocket).isChecked = conn.websocket
             root.findViewById<CheckBox>(R.id.cb_clean).isChecked = conn.cleanSession
@@ -388,6 +392,10 @@ class ConnectionListFragment : Fragment() {
                 if (isNarodmon && apiKey.isBlank()) {
                     Toast.makeText(requireContext(), R.string.narodmon_need_key, Toast.LENGTH_LONG).show()
                     return@setPositiveButton
+                }
+                // выбор «разрешить HTTP» общий для аккаунта Народмона
+                if (isNarodmon) {
+                    NarodmonApi.setAllowInsecureHttp(requireContext(), cbNmHttp.isChecked)
                 }
                 val ghOn = ghCb.isChecked && !isNarodmon
                 val defaultClientId = "mqttpanel-" + System.currentTimeMillis().toString(36)

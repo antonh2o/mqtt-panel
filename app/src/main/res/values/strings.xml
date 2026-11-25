@@ -249,6 +249,9 @@
     <string name="sensor_loading">Загрузка датчиков…</string>
     <string name="field_api_key">API-ключ narodmon (личный)</string>
     <string name="narodmon_need_key">Укажите API-ключ narodmon («Мои приложения» на narodmon.ru)</string>
+    <string name="nm_allow_insecure_http">Разрешить HTTP, если HTTPS заблокирован</string>
+    <string name="nm_allow_insecure_http_hint">Ключ API пойдёт открытым текстом — включайте только в сети, которой доверяете.</string>
+    <string name="nm_https_blocked">Народмон: сеть блокирует HTTPS. Включите «Разрешить HTTP» в настройках подключения</string>
     <string name="nm_register_by_email">Регистрация по email</string>
     <string name="nm_register_title">Регистрация в Народном Мониторинге</string>
     <string name="nm_register_hint">Укажите email — платформа вышлет на него пароль участника, его впишите в поле «Пароль».</string>

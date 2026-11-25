@@ -1082,10 +1082,10 @@ class WidgetAdapter(
                 } ?: panel.lastValue.takeIf {
                     it.isNotBlank() && i == (multiLastSeries[panel.id] ?: 0)
                 }?.let { it + panel.unitSuffix } ?: ""
-                rows += ChartView.OverlayRow(color, label, value)
+                rows += ChartView.OverlayRow(color, label, value, i)
             }
             cv.overlayRows = rows
-            cv.overlayTextSize = 12f
+            cv.overlayTextSize = 13f
             bindPeriodChips(panel)
             bindChartSwipe(panel)
         }

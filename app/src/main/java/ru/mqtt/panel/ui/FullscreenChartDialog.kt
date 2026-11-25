@@ -329,10 +329,10 @@ class FullscreenChartDialog(
             if (s.topic.isBlank() && s.label.isBlank()) return@forEachIndexed
             val numPrefix = if (shown > 1) "${i + 1}. " else ""
             val label = numPrefix + s.label.ifBlank { s.topic.substringAfterLast('/').ifBlank { s.topic } }
-            rows += ChartView.OverlayRow(parseColor(s.color, ChartView.DEFAULT_COLOR), label, "")
+            rows += ChartView.OverlayRow(parseColor(s.color, ChartView.DEFAULT_COLOR), label, "", i)
         }
         chart.overlayRows = rows
-        chart.overlayTextSize = 16f
+        chart.overlayTextSize = 17f
     }
 
     private fun fmtValue(v: Float): String {

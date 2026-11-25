@@ -60,4 +60,31 @@ class MqttConfigShareTest {
     fun `garbage payload fails cleanly`() {
         assertTrue(MqttConfigShare.parseEnvelope("не json", "").isFailure)
     }
+
+    // --- совместимость с уже опубликованными конвертами ---
+    // Сгенерированы реализацией 0.2.88 (PBKDF2-SHA256, IV 00..0B) и её
+    // аналогом на Android 7 (PBKDF2-SHA1): после перехода на Base64 из
+    // stdlib и перебора KDF чтение старых конфигов обязано сохраниться.
+    private val fixtureConfig =
+        """{"connections":[{"id":1,"name":"Дача","host":"mqtt.iotw.ru","password":"секрет"}],"panels":[]}"""
+
+    private fun aesEnvelope(data: String) =
+        """{"app":"mqtt-panel","ver":1,"ts":0,"from":"dev1","name":"Планшет","enc":"aes","data":"$data"}"""
+
+    @Test
+    fun `decrypts envelope made with pbkdf2 sha256`() {
+        val env = aesEnvelope(
+            "AAECAwQFBgcICQoLw7ak27OSJnJWENpyy9gkSvZ3zNQs6vA4Trh5zYLciTSC7xaHUGd19/NCGABC3X4j7Q06uhKm9OjN4mXf4xJ4eAEBi+0KAjSS4+epeViq/ENcR3+LO+wOd+Gp6rYMWv9kYaRoAN2BxvCR8VNRCLNG8aGsYtr2CSay"
+        )
+        assertEquals(fixtureConfig, MqttConfigShare.parseEnvelope(env, "пароль").getOrThrow())
+        assertTrue(MqttConfigShare.parseEnvelope(env, "не тот").isFailure)
+    }
+
+    @Test
+    fun `decrypts envelope made with pbkdf2 sha1`() {
+        val env = aesEnvelope(
+            "AAECAwQFBgcICQoLeh6ouuyrjh+0CKEIrzAkX/53H9B2XTfGBmAgxw2YFKH/MqtF0F6HvCX8DBIqH1+0OnmCegnsXsI17uDaOuOBtWFl9u+dd7XUhZ/VGqYTe6hboMRNjdAGByyfXZ6zhQpVaqceIu3F+8kbfjdl6gbAbqynfdpNKq/d"
+        )
+        assertEquals(fixtureConfig, MqttConfigShare.parseEnvelope(env, "пароль").getOrThrow())
+    }
 }

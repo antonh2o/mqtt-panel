@@ -90,6 +90,20 @@ object NarodmonApi {
     private const val PREFS = "narodmon"
     private const val KEY_UUID = "uuid"
     private const val KEY_LOGON_AT = "logon_at"
+    private const val KEY_INSECURE_HTTP = "allow_insecure_http"
+
+    /**
+     * HTTP-фолбэк к api.narodmon.ru (ключ API открытым текстом) включается
+     * только вручную в настройках подключения — по умолчанию выключен.
+     */
+    fun allowInsecureHttp(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_INSECURE_HTTP, false)
+
+    fun setAllowInsecureHttp(context: Context, allow: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_INSECURE_HTTP, allow).apply()
+    }
 
     fun uuid(context: Context): String {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -318,11 +332,25 @@ object NarodmonApi {
         if (apiKey.isBlank()) throw MissingApiKeyException()
         val separator = if (path.contains('?')) "&" else "?"
         val fullPath = "$path${separator}uuid=${uuid(context)}"
-        val text = runCatching { open(context, "https://api.narodmon.ru/$fullPath", apiKey, body) }
-            .getOrElse { e ->
-                if (e is IllegalStateException || e is RateLimitException) throw e
-                open(context, "http://api.narodmon.ru/$fullPath", apiKey, body)
+        val text = try {
+            open(context, "https://api.narodmon.ru/$fullPath", apiKey, body)
+        } catch (e: Exception) {
+            if (e is IllegalStateException || e is RateLimitException) throw e
+            // Некоторые сети режут 443 до api.narodmon.ru — HTTP спасает, но
+            // ключ API уходит открытым текстом: только по явному разрешению
+            // пользователя (чекбокс в настройках подключения).
+            if (!allowInsecureHttp(context)) {
+                throw IOException(
+                    "HTTPS до api.narodmon.ru недоступен, а HTTP-фолбэк выключен " +
+                        "(включите «Разрешить HTTP» в настройках подключения)", e
+                )
             }
+            ImportLog.write(
+                context,
+                "NARODMON HTTPS недоступен — HTTP-фолбэк разрешён пользователем (ключ открытым текстом)"
+            )
+            open(context, "http://api.narodmon.ru/$fullPath", apiKey, body)
+        }
         ImportLog.write(context, "NARODMON $path → ${text.take(300)}")
         errorEnvelope(text)?.let { throw envelopeException(it) }
         return text

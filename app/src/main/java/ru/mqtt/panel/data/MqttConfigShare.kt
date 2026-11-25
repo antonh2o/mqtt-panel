@@ -2,13 +2,15 @@ package ru.mqtt.panel.data
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import java.security.NoSuchAlgorithmException
 import java.security.SecureRandom
-import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * Обмен конфигурациями дашбордов через MQTT.
@@ -22,12 +24,14 @@ import javax.crypto.spec.SecretKeySpec
  * Формат конверта:
  *   {app:"mqtt-panel", ver:1, ts, from:<devId>, name, enc:"none"|"aes", data}
  *   enc="none" — data = JSON конфига; enc="aes" — base64(IV + AES/GCM),
- *   ключ = PBKDF2WithHmacSHA256(пароль, соль=devId, 65536, 128 бит).
+ *   ключ = PBKDF2(пароль, соль=devId, 65536 итераций, 128 бит):
+ *   SHA-256, а на Android 7, где его нет, — SHA-1 (при чтении пробуются оба).
  *
  * Режим «без секретов» (enc="none" + stripSecrets) удаляет из конфига
  * пароли и API-ключи — такой конфиг безопасно публиковать на публичном
  * брокере. Чистые функции — покрываются JVM-тестами.
  */
+@OptIn(ExperimentalEncodingApi::class)
 object MqttConfigShare {
 
     const val TOPIC_COMMON = "mqttpanel/share/config"
@@ -98,26 +102,64 @@ object MqttConfigShare {
 
     // --- AES-GCM ---
 
-    private fun keyFor(passphrase: String, salt: String): SecretKeySpec {
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt.toByteArray(), 65536, 128)
-        val key = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-            .generateSecret(spec).encoded
+    /**
+     * PBKDF2WithHmacSHA256 появился только в API 26, а minSdk приложения — 24:
+     * на Android 7.0/7.1 доступен лишь SHA-1. Шифруем первым доступным
+     * алгоритмом, расшифровываем перебором: конверты 0.2.86+ (SHA-256)
+     * читаются на любом устройстве, а конверт с Android 7 — на новом.
+     *
+     * Base64 берётся из stdlib Kotlin: java.util.Base64 доступен только
+     * с API 26 и ронял обмен конфигом на Android 7 (NoClassDefFoundError).
+     */
+    private val KDF_ALGORITHMS = listOf("PBKDF2WithHmacSHA256", "PBKDF2WithHmacSHA1")
+    private const val KDF_ITERATIONS = 65536
+    private const val KDF_KEY_BITS = 128
+
+    private fun keyFor(passphrase: String, salt: String, algorithm: String): SecretKeySpec {
+        val spec = PBEKeySpec(
+            passphrase.toCharArray(), salt.toByteArray(Charsets.UTF_8),
+            KDF_ITERATIONS, KDF_KEY_BITS
+        )
+        val key = SecretKeyFactory.getInstance(algorithm).generateSecret(spec).encoded
         return SecretKeySpec(key, "AES")
     }
 
     private fun encrypt(plain: String, passphrase: String, salt: String): String {
         val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, keyFor(passphrase, salt), GCMParameterSpec(128, iv))
-        return Base64.getEncoder().encodeToString(iv + cipher.doFinal(plain.toByteArray()))
+        var missing: NoSuchAlgorithmException? = null
+        for (algorithm in KDF_ALGORITHMS) {
+            try {
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(
+                    Cipher.ENCRYPT_MODE, keyFor(passphrase, salt, algorithm),
+                    GCMParameterSpec(128, iv)
+                )
+                val body = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+                return Base64.Default.encode(iv + body)
+            } catch (e: NoSuchAlgorithmException) {
+                missing = e
+            }
+        }
+        throw IllegalStateException("Нет доступного PBKDF2 для шифрования конфига", missing)
     }
 
     private fun decrypt(data: String, passphrase: String, salt: String): String {
-        val raw = Base64.getDecoder().decode(data)
+        val raw = Base64.Default.decode(data)
         require(raw.size > 12) { "повреждённые данные" }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, keyFor(passphrase, salt), GCMParameterSpec(128, raw.copyOfRange(0, 12)))
-        return String(cipher.doFinal(raw.copyOfRange(12, raw.size)))
+        var last: Throwable? = null
+        for (algorithm in KDF_ALGORITHMS) {
+            try {
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(
+                    Cipher.DECRYPT_MODE, keyFor(passphrase, salt, algorithm),
+                    GCMParameterSpec(128, raw.copyOfRange(0, 12))
+                )
+                return String(cipher.doFinal(raw.copyOfRange(12, raw.size)), Charsets.UTF_8)
+            } catch (e: Exception) {
+                last = e
+            }
+        }
+        throw IllegalStateException("Не удалось расшифровать конфиг (неверный пароль?)", last)
     }
 
     /**
